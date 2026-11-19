@@ -6,6 +6,8 @@ export interface RegistryEvent {
   // The agent's project (git worktree). Discovery is global, so this tells you
   // WHERE each agent is even though you can reach them by ID regardless.
   project?: string;
+  // Machine the agent runs on (see getHost).
+  host?: string;
   room?: string;
   // Present on "here" responses: every room the responder is in.
   rooms?: string[];
@@ -19,6 +21,7 @@ export interface AgentPresence {
   agentId: string;
   displayName: string;
   project?: string;
+  host?: string;
   rooms: Set<string>;
   // Memorable DM handles this agent also answers to (from set_name).
   aliases: Set<string>;

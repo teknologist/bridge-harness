@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { hostname } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -168,6 +169,15 @@ function getDisplayName(fallback: string): string {
   return surface ? `${fallback} @ ${surface}` : fallback;
 }
 
+// Machine this agent runs on, so a roster spanning several hosts (e.g. a laptop and a
+// server sharing one NATS broker) shows WHERE each agent lives. BRIDGE_HOST overrides;
+// otherwise the short hostname, without the ".local" mDNS suffix macOS appends.
+function getHost(): string {
+  const override = process.env.BRIDGE_HOST?.trim();
+  if (override) return override;
+  return hostname().replace(/\.local$/i, "").split(".")[0] || "unknown";
+}
+
 function makeSubjects(project: string) {
   return {
     // Rooms are project-scoped (isolated per worktree).
@@ -195,6 +205,7 @@ interface AgentInfo {
   agentId: string;
   displayName: string;
   project?: string;
+  host?: string;
   rooms: Set<string>;
   // Memorable DM handles this agent also answers to (from set_name).
   aliases: Set<string>;
@@ -300,6 +311,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   const agentId = generateAgentId("pi");
   // Mutable so `set_name` can update the human-readable name at runtime.
   let displayName = getDisplayName("Pi Agent");
+  const host = getHost();
   // Mutable so `use_bridge` can move us to another namespace at runtime.
   let project = getProject();
   let sub = makeSubjects(project);
@@ -332,7 +344,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     room?: string,
   ) {
     if (!nc) return;
-    nc.publish(sub.registry(), encode({ type, agentId, displayName, project, room, aliases: [...dmAliases], timestamp: Date.now() }));
+    nc.publish(sub.registry(), encode({ type, agentId, displayName, project, host, room, aliases: [...dmAliases], timestamp: Date.now() }));
   }
 
   // Identity response to a who-there query, carrying every room we're in.
@@ -340,12 +352,12 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     if (!nc) return;
     nc.publish(
       sub.registry(),
-      encode({ type: "here", agentId, displayName, project, rooms: [...joinedRooms], aliases: [...dmAliases], timestamp: Date.now() }),
+      encode({ type: "here", agentId, displayName, project, host, rooms: [...joinedRooms], aliases: [...dmAliases], timestamp: Date.now() }),
     );
   }
 
   function applyRegistryEvent(event: {
-    type: string; agentId: string; displayName: string; project?: string; room?: string; rooms?: string[]; aliases?: string[];
+    type: string; agentId: string; displayName: string; project?: string; host?: string; room?: string; rooms?: string[]; aliases?: string[];
   }) {
     if (event.agentId === agentId) return;
     if (event.type === "who-there") {
@@ -358,6 +370,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
         agentId: event.agentId,
         displayName: event.displayName,
         project: event.project,
+        host: event.host,
         rooms: new Set(event.rooms ?? []),
         aliases: new Set(event.aliases ?? []),
       });
@@ -370,6 +383,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
         agentId: event.agentId,
         displayName: event.displayName,
         project: event.project,
+        host: event.host ?? existing?.host,
         rooms: existing?.rooms ?? new Set(),
         aliases: new Set(event.aliases ?? []),
       });
@@ -433,7 +447,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     (async () => {
       for await (const msg of registrySub) {
         try {
-          applyRegistryEvent(decode(msg.data) as { type: string; agentId: string; displayName: string; project?: string; room?: string; rooms?: string[]; aliases?: string[] });
+          applyRegistryEvent(decode(msg.data) as { type: string; agentId: string; displayName: string; project?: string; host?: string; room?: string; rooms?: string[]; aliases?: string[] });
         } catch {}
       }
     })();
@@ -476,7 +490,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     // Switch project and re-wire (mirrors session_start).
     project = target;
     sub = makeSubjects(project);
-    nc.publish(sub.presence(), encode({ agent: agentId, status: "active", project }));
+    nc.publish(sub.presence(), encode({ agent: agentId, status: "active", project, host }));
     publishRegistry("join");
     publishRegistry("room-join", project);
     await subscribeToIncoming(nc);
@@ -493,7 +507,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   // re-introduce themselves or they stay mutually invisible despite being connected.
   function announceIdentity() {
     if (!nc) return;
-    nc.publish(sub.presence(), encode({ agent: agentId, status: "active", project }));
+    nc.publish(sub.presence(), encode({ agent: agentId, status: "active", project, host }));
     publishRegistry("join");
     for (const room of joinedRooms) publishRegistry("room-join", room);
     publishRegistry("who-there");
@@ -519,13 +533,13 @@ export default function bridgeExtension(pi: ExtensionAPI) {
       watchConnectionStatus(nc);
 
       // Register identity
-      nc.publish(sub.presence(), encode({ agent: agentId, status: "active", project }));
+      nc.publish(sub.presence(), encode({ agent: agentId, status: "active", project, host }));
       publishRegistry("join");
       // Join the project room (shared lobby) by default for presence.
       publishRegistry("room-join", project);
 
       presenceInterval = setInterval(() => {
-        nc?.publish(sub.presence(), encode({ agent: agentId, status: "active", project }));
+        nc?.publish(sub.presence(), encode({ agent: agentId, status: "active", project, host }));
       }, PRESENCE_INTERVAL_MS);
 
       await subscribeToIncoming(nc);
@@ -564,7 +578,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     }
     if (nc) {
       publishRegistry("leave");
-      nc.publish(sub.presence(), encode({ agent: agentId, status: "offline", project }));
+      nc.publish(sub.presence(), encode({ agent: agentId, status: "offline", project, host }));
       await nc.drain();
       nc = null;
     }
@@ -613,7 +627,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
 
       if (action === "whoami") {
         const identity = {
-          agentId, displayName, project, rooms: [...joinedRooms], aliases: [...dmAliases],
+          agentId, displayName, project, host, rooms: [...joinedRooms], aliases: [...dmAliases],
           worktreeHint:
             `Rooms are scoped to "${project}" (the git worktree captured at launch). If your ` +
             `current working directory is a DIFFERENT worktree, run ` +
@@ -719,6 +733,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
           agentId: a.agentId,
           displayName: a.displayName,
           project: a.project,
+          host: a.host,
           rooms: [...a.rooms],
           aliases: [...a.aliases],
         }));

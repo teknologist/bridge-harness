@@ -40,7 +40,9 @@ class McpClient {
 
   constructor(env: Record<string, string>) {
     this.proc = spawn("node", [MCP_PATH], {
-      env: { ...process.env, ...env },
+      // Pin the broker: an exported BRIDGE_NATS_URL (e.g. a remote broker in the dev's
+      // shell) would otherwise point the server away from the local peer below.
+      env: { ...process.env, BRIDGE_NATS_URL: "nats://localhost:4222", ...env },
       stdio: ["pipe", "pipe", "pipe"],
     }) as ChildProcessWithoutNullStreams;
 

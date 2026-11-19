@@ -1,5 +1,6 @@
 import { basename, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+import { hostname } from "node:os";
 
 export function getProject(): string {
   if (process.env.BRIDGE_PROJECT) return process.env.BRIDGE_PROJECT;
@@ -70,6 +71,15 @@ export function getDisplayName(fallback: string): string {
   if (process.env.BRIDGE_DISPLAY_NAME) return process.env.BRIDGE_DISPLAY_NAME;
   const surface = getCmuxSurfaceName();
   return surface ? `${fallback} @ ${surface}` : fallback;
+}
+
+// Machine this agent runs on, so a roster spanning several hosts (e.g. a laptop and a
+// server sharing one NATS broker) shows WHERE each agent lives. BRIDGE_HOST overrides;
+// otherwise the short hostname, without the ".local" mDNS suffix macOS appends.
+export function getHost(): string {
+  const override = process.env.BRIDGE_HOST?.trim();
+  if (override) return override;
+  return hostname().replace(/\.local$/i, "").split(".")[0] || "unknown";
 }
 
 export const NATS_URL = process.env.BRIDGE_NATS_URL ?? "nats://localhost:4222";

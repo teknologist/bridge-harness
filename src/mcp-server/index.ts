@@ -9,7 +9,7 @@ import {
   NATS_CONNECT_OPTIONS,
   PRESENCE_TTL_MS,
   generateAgentId,
-  getDisplayName,
+  getDisplayName, getHost,
 } from "../shared/config.js";
 import { subjects } from "../shared/subjects.js";
 import { type AgentPresence, type RegistryEvent } from "../shared/types.js";
@@ -41,6 +41,7 @@ let project = getProject();
 const agentId = generateAgentId("claude-code");
 // Mutable so `set_name` can update the human-readable name at runtime.
 let displayName = getDisplayName("Claude Code");
+const host = getHost();
 const joinedAt = Date.now();
 
 const codec = new TextEncoder();
@@ -65,10 +66,10 @@ function resolvePresence(target: string): AgentPresence | undefined {
   return undefined;
 }
 
-function publishRegistry(event: Omit<RegistryEvent, "agentId" | "displayName" | "project" | "aliases" | "timestamp">) {
+function publishRegistry(event: Omit<RegistryEvent, "agentId" | "displayName" | "project" | "host" | "aliases" | "timestamp">) {
   nc.publish(
     subjects.registry(),
-    encode({ ...event, agentId, displayName, project, aliases: [...dmAliases], timestamp: Date.now() } satisfies RegistryEvent)
+    encode({ ...event, agentId, displayName, project, host, aliases: [...dmAliases], timestamp: Date.now() } satisfies RegistryEvent)
   );
 }
 
@@ -87,6 +88,7 @@ function applyRegistryEvent(event: RegistryEvent) {
       agentId: event.agentId,
       displayName: event.displayName,
       project: event.project,
+      host: event.host ?? existing?.host,
       rooms: new Set(event.rooms ?? []),
       aliases: new Set(event.aliases ?? []),
       joinedAt: existing?.joinedAt ?? event.timestamp,
@@ -101,6 +103,7 @@ function applyRegistryEvent(event: RegistryEvent) {
       agentId: event.agentId,
       displayName: event.displayName,
       project: event.project,
+      host: event.host ?? existing?.host,
       // A "join" re-announce (e.g. after set_name) shouldn't wipe rooms we already know.
       rooms: existing?.rooms ?? new Set(),
       aliases: new Set(event.aliases ?? []),
@@ -215,7 +218,7 @@ async function switchBridge(newProject: string): Promise<string> {
   // Switch project and re-wire (mirrors startup): global listeners + new project lobby.
   project = target;
   await setupListeners(nc);
-  nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project }));
+  nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project, host }));
   publishRegistry({ type: "join" });
   await subscribeToRoom(project);
   // Re-subscribe any name aliases (their subs were torn down above).
@@ -247,6 +250,7 @@ server.registerTool(
         agentId,
         displayName,
         project,
+        host,
         rooms: [...activeSubscriptions],
         aliases: [...dmAliases],
         // Surfaced here because it is the single most consequential thing that can be
@@ -325,6 +329,7 @@ server.registerTool(
         agentId: a.agentId,
         displayName: a.displayName,
         project: a.project,
+        host: a.host,
         lastSeen: a.lastSeen,
       })), null, 2) }],
     };
@@ -417,6 +422,7 @@ server.registerTool(
         agentId: a.agentId,
         displayName: a.displayName,
         project: a.project,
+        host: a.host,
         rooms: [...a.rooms],
         aliases: [...a.aliases],
         lastSeen: a.lastSeen,
@@ -458,7 +464,7 @@ server.registerTool(
 // has a TTL) and their own `join`/`here` events were not retained, so both sides need to
 // re-introduce themselves or they stay mutually invisible despite being connected.
 function announceIdentity() {
-  nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project }));
+  nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project, host }));
   publishRegistry({ type: "join" });
   for (const room of activeSubscriptions) publishRegistry({ type: "room-join", room });
   publishRegistry({ type: "who-there" });
@@ -503,7 +509,7 @@ async function main() {
   await setupListeners(nc);
 
   // Announce presence + identity
-  nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project }));
+  nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project, host }));
   publishRegistry({ type: "join" });
   // Join the project room (shared lobby) by default — subscribes, announces presence,
   // (subscribeToRoom below registers the room, so reconnect re-announces it too)
@@ -513,7 +519,7 @@ async function main() {
 
   // Heartbeat
   setInterval(() => {
-    nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project }));
+    nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project, host }));
   }, 30_000);
 
   let cleanedUp = false;

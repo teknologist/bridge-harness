@@ -4,6 +4,7 @@ export interface PresenceEvent {
   agent: string;
   status: string;
   project?: string;
+  host?: string;
 }
 
 /**
@@ -34,6 +35,7 @@ export function applyPresenceEvent(
   if (existing) {
     existing.lastSeen = now;
     if (event.project) existing.project = event.project;
+    if (event.host) existing.host = event.host;
     return true;
   }
 
@@ -43,6 +45,7 @@ export function applyPresenceEvent(
     agentId: event.agent,
     displayName: event.agent,
     project: event.project,
+    host: event.host,
     rooms: new Set(),
     aliases: new Set(),
     joinedAt: now,
