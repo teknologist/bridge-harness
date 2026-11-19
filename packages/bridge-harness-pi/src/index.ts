@@ -344,6 +344,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   const inbox: InboxMessage[] = [];
   const roster = new Map<string, AgentInfo>();
   let lastConnectError: string | undefined;
+  const startedAt = Date.now();
   // Resolve a DM target (an agentId OR a set_name alias) to its roster entry, so the
   // "not visible" warning doesn't fire for a name that IS reachable.
   const resolveAgent = (target: string): AgentInfo | undefined => {
@@ -681,7 +682,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   // ---- /bridge: live overlay of every agent discovered on the bridge ----
   const panelSource: PanelSource = {
     natsUrl: NATS_URL,
-    self: () => ({ agentId, displayName, host, project, rooms: [...joinedRooms] }),
+    self: () => ({ agentId, displayName, host, project, rooms: [...joinedRooms], aliases: [...dmAliases], joinedAt: startedAt }),
     connected: () => nc !== null && !nc.isClosed(),
     error: () => lastConnectError,
     // Agents silent for 3× the stale threshold are long gone (crashed without an

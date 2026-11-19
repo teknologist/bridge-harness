@@ -23,7 +23,12 @@ export interface PanelSelf {
   host: string;
   project: string;
   rooms: string[];
+  aliases?: string[];
+  joinedAt?: number;
 }
+
+/** Nerd Font "user" glyph (nf-fa-user) marking the agent running this Pi session. */
+export const SELF_ICON = '\uf007';
 
 /** What the panel reads from and asks of the extension. */
 export interface PanelSource {
@@ -148,7 +153,8 @@ export function findAgent(
 /** Agents grouped by host, this host first, then alphabetically; rows sorted by label. */
 export function groupByHost(
   agents: PanelAgent[],
-  selfHost: string
+  selfHost: string,
+  selfId?: string
 ): Array<{ host: string; agents: PanelAgent[] }> {
   const groups = new Map<string, PanelAgent[]>();
   for (const a of agents) {
@@ -162,7 +168,14 @@ export function groupByHost(
     )
     .map(([host, list]) => ({
       host,
-      agents: list.sort((x, y) => agentLabel(x).localeCompare(agentLabel(y))),
+      // The current session's agent leads its host group; the rest sort by label.
+      agents: list.sort((x, y) =>
+        x.agentId === selfId
+          ? -1
+          : y.agentId === selfId
+            ? 1
+            : agentLabel(x).localeCompare(agentLabel(y))
+      ),
     }));
 }
 
@@ -217,19 +230,46 @@ export class BridgePanel {
   }
 
   /** Agents shown, in display order (grouped). */
+  /** The agent running this Pi session, shaped like a roster entry. Always online. */
+  private selfAgent(): PanelAgent {
+    const self = this.source.self();
+    return {
+      agentId: self.agentId,
+      displayName: self.displayName,
+      project: self.project,
+      host: self.host,
+      rooms: new Set(self.rooms),
+      aliases: new Set(self.aliases ?? []),
+      joinedAt: self.joinedAt,
+      lastSeen: this.now(),
+    };
+  }
+
+  private isSelf(agent: PanelAgent | undefined): boolean {
+    return agent?.agentId === this.source.self().agentId;
+  }
+
+  /** Agents shown, in display order (grouped). Our own agent is always in scope. */
   visibleAgents(): PanelAgent[] {
     const self = this.source.self();
-    const shown = this.source
+    const others = this.source
       .agents()
       .filter((a) => a.agentId !== self.agentId)
       .filter((a) => inScope(a, this.scope, self.project))
       .filter((a) => matchesFilter(a, this.filter));
-    return groupByHost(shown, self.host).flatMap((g) => g.agents);
+    // We are always listed, whatever the scope or filter, as a fixed point of reference.
+    const shown = [this.selfAgent(), ...others];
+    return groupByHost(shown, self.host, self.agentId).flatMap((g) => g.agents);
   }
 
+  /** Defaults to the first other agent: that is who you most likely want to reach. */
   selected(): PanelAgent | undefined {
     const list = this.visibleAgents();
-    return list.find((a) => a.agentId === this.selectedId) ?? list[0];
+    return (
+      list.find((a) => a.agentId === this.selectedId) ??
+      list.find((a) => !this.isSelf(a)) ??
+      list[0]
+    );
   }
 
   private move(delta: number): void {
@@ -275,7 +315,8 @@ export class BridgePanel {
     else if (k.matchesKey(data, 'down')) this.move(1);
     else if (k.matchesKey(data, 'return') || k.matchesKey(data, 'enter')) {
       const agent = this.selected();
-      if (agent)
+      if (this.isSelf(agent)) this.status = 'That is you — pick another agent to message';
+      else if (agent)
         return this.close({ action: 'message', target: messageTarget(agent) });
     } else if (data === 'w') {
       return this.close({ action: 'whoami' });
@@ -299,6 +340,10 @@ export class BridgePanel {
   private joinSelected(): void {
     const agent = this.selected();
     if (!agent) return;
+    if (this.isSelf(agent)) {
+      this.status = 'That is you — pick another agent to join its room';
+      return;
+    }
     if (!this.source.connected()) {
       this.status = 'Not connected — cannot join a room';
       return;
@@ -339,7 +384,7 @@ export class BridgePanel {
     const now = this.now();
     const connected = this.source.connected();
     const list = this.visibleAgents();
-    const online = list.filter((a) => !isStale(a, now)).length;
+    const online = list.filter((a) => !this.isSelf(a) && !isStale(a, now)).length;
     const title = ` ${t.bold('Bridge agents')} ${t.fg('dim', '·')} ${t.fg('muted', shortUrl(this.source.natsUrl))} ${t.fg('dim', '·')} ${
       connected
         ? t.fg('success', `${online} online`)
@@ -383,7 +428,7 @@ export class BridgePanel {
     // Flatten groups into lines, then window them so the selected row stays visible.
     const sel = this.selected();
     const lines: Array<{ text: string; agentId?: string }> = [];
-    for (const g of groupByHost(list, self.host)) {
+    for (const g of groupByHost(list, self.host, self.agentId)) {
       if (lines.length > 0) lines.push({ text: '' });
       lines.push({
         text:
@@ -396,12 +441,13 @@ export class BridgePanel {
           agentId: a.agentId,
         });
     }
-    if (lines.length === 0) {
+    if (!list.some((a) => !this.isSelf(a))) {
+      if (lines.length > 0) lines.push({ text: '' });
       lines.push({
         text: t.fg(
           'dim',
           this.filter
-            ? 'No agent matches the filter.'
+            ? 'No other agent matches the filter.'
             : this.scope === 'project'
               ? `No other agent in room "${self.project}" — press a to show all.`
               : 'No other agent discovered yet — press r to ask again.'
@@ -476,18 +522,30 @@ export class BridgePanel {
     const t = this.theme;
     const fit = (s: string, n: number) =>
       this.ui.truncateToWidth(s, n, '…', true);
+    const self = this.isSelf(a);
     const stale = isStale(a, now);
-    const dot = stale ? t.fg('warning', '○') : t.fg('success', '●');
+    const dot = self
+      ? t.fg('accent', SELF_ICON)
+      : stale
+        ? t.fg('warning', '○')
+        : t.fg('success', '●');
     const age = a.lastSeen !== undefined ? formatAge(now - a.lastSeen) : '—';
     const nameW = Math.max(10, Math.min(18, inner - 40));
+    const name = self
+      ? t.fg('accent', fit(agentLabel(a), nameW))
+      : fit(agentLabel(a), nameW);
     const cells =
-      fit(agentLabel(a), nameW) +
+      name +
       ' ' +
       fit(agentKind(a.agentId), 7) +
       ' ' +
       fit(a.project ?? '—', 18) +
       ' ' +
-      (stale ? t.fg('warning', age) : t.fg('dim', age));
+      (self
+        ? t.fg('accent', 'you')
+        : stale
+          ? t.fg('warning', age)
+          : t.fg('dim', age));
     return selected
       ? `${t.fg('accent', '▶')} ${dot} ${t.bold(cells)}`
       : `  ${dot} ${cells}`;

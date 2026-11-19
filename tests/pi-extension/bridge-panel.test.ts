@@ -7,6 +7,7 @@ import {
   type PanelResult,
   type PanelSource,
   type PanelTui,
+  SELF_ICON,
 } from '../../packages/bridge-harness-pi/src/bridge-panel.js';
 
 // Minimal stand-ins for pi-tui and Pi's theme: the panel only needs key matching and widths.
@@ -110,14 +111,14 @@ const roster = [
 ];
 
 describe('/bridge panel', () => {
-  it('lists only agents in our project by default, never ourselves, this host first', () => {
+  it('lists ourselves first, then agents in our project, this host first', () => {
     const { panel, text } = setup(roster);
     expect(panel.visibleAgents().map((a) => a.agentId)).toEqual([
+      'pi-me',
       'pi-mac-1',
       'pi-glod-2',
     ]);
     const out = text();
-    expect(out).not.toContain('pi-me ');
     expect(out.indexOf('│ mac (this host)')).toBeLessThan(out.indexOf('│ glod'));
   });
 
@@ -173,13 +174,14 @@ describe('/bridge panel', () => {
         .visibleAgents()
         .map((a) => a.agentId)
         .sort()
-    ).toEqual(['claude-code-41', 'pi-glod-2']);
+    ).toEqual(['claude-code-41', 'pi-glod-2', 'pi-me']);
     panel.handleInput('q');
   });
 
   it('an initial filter (from /bridge <name>) searches all agents', () => {
     const { panel } = setup(roster, { filter: 'claude' });
     expect(panel.visibleAgents().map((a) => a.agentId)).toEqual([
+      'pi-me',
       'claude-code-41',
     ]);
   });
@@ -221,5 +223,35 @@ describe('findAgent', () => {
 describe('groupByHost', () => {
   it("puts agents without a host under 'unknown host'", () => {
     expect(groupByHost([agent('x')], 'mac')[0].host).toBe('unknown host');
+  });
+});
+
+describe('/bridge panel: the current session agent', () => {
+  it('is shown with the Nerd Font icon and "you" instead of a status dot, so it is easy to spot', () => {
+    const line = setup(roster).text().split('\n').find((l) => l.includes(SELF_ICON))!;
+    expect(line).toContain('me');
+    expect(line).toContain('you');
+    expect(line).not.toContain('●');
+  });
+
+  it('stays listed even when the filter or scope would hide it', () => {
+    const { panel } = setup(roster, { filter: 'claude' });
+    expect(panel.visibleAgents()[0].agentId).toBe('pi-me');
+  });
+
+  it('is not selected by default and cannot be messaged or joined', () => {
+    const { panel, result, joined, text } = setup(roster);
+    expect(panel.selected()?.agentId).toBe('pi-mac-1');
+    panel.handleInput('\x1b[A'); // up onto ourselves
+    expect(panel.selected()?.agentId).toBe('pi-me');
+    panel.handleInput('\r');
+    panel.handleInput('j');
+    expect(result()).toBe('open');
+    expect(joined).toEqual([]);
+    expect(text()).toContain('That is you');
+  });
+
+  it('does not count itself as online', () => {
+    expect(setup(roster).text()).toContain('1 online');
   });
 });
