@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { hostname } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { BridgePanel, STALE_AFTER_MS, findAgent, messageTarget, type PanelResult, type PanelSource, type PanelTui } from "./bridge-panel.js";
 
 // IMPORTANT: no static `import ... from "nats"` (not even `import type`). Pi loads this
 // extension through a symlink, and some hosts (e.g. Bun-based runtimes) try to resolve
@@ -222,6 +223,9 @@ interface AgentInfo {
   rooms: Set<string>;
   // Memorable DM handles this agent also answers to (from set_name).
   aliases: Set<string>;
+  // When we first / last heard from this agent (heartbeat or registry event). Shown by /bridge.
+  joinedAt?: number;
+  lastSeen?: number;
 }
 
 interface InboxMessage {
@@ -339,6 +343,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   // Pending messages that arrived mid-turn. Drained by `read` or flushed on agent_end.
   const inbox: InboxMessage[] = [];
   const roster = new Map<string, AgentInfo>();
+  let lastConnectError: string | undefined;
   // Resolve a DM target (an agentId OR a set_name alias) to its roster entry, so the
   // "not visible" warning doesn't fire for a name that IS reachable.
   const resolveAgent = (target: string): AgentInfo | undefined => {
@@ -378,6 +383,39 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     );
   }
 
+  // Record that we just heard from an agent already in the roster.
+  function touch(id: string, now = Date.now()) {
+    const a = roster.get(id);
+    if (!a) return;
+    a.lastSeen = now;
+    a.joinedAt ??= now;
+  }
+
+  // Heartbeats on bridge.presence keep lastSeen fresh, and let us learn about agents
+  // whose registry announcement we missed. Mirrors applyPresenceEvent on the Claude side.
+  function applyPresence(event: { agent: string; status: string; project?: string; host?: string }) {
+    if (!event.agent || event.agent === agentId) return;
+    if (event.status === "offline") {
+      roster.delete(event.agent);
+      return;
+    }
+    const existing = roster.get(event.agent);
+    if (existing) {
+      if (event.project) existing.project = event.project;
+      if (event.host) existing.host = event.host;
+    } else {
+      roster.set(event.agent, {
+        agentId: event.agent,
+        displayName: event.agent,
+        project: event.project,
+        host: event.host,
+        rooms: new Set(),
+        aliases: new Set(),
+      });
+    }
+    touch(event.agent);
+  }
+
   function applyRegistryEvent(event: {
     type: string; agentId: string; displayName: string; project?: string; host?: string; room?: string; rooms?: string[]; aliases?: string[];
   }) {
@@ -395,6 +433,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
         host: event.host,
         rooms: new Set(event.rooms ?? []),
         aliases: new Set(event.aliases ?? []),
+        joinedAt: roster.get(event.agentId)?.joinedAt,
       });
       return;
     }
@@ -454,7 +493,16 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     const canonicalDmSub = nc.subscribe(sub.dm("pi"));
     const roomSub = nc.subscribe(sub.roomWildcard());
     const registrySub = nc.subscribe(sub.registry());
-    trackedSubs.push(dmSub, canonicalDmSub, roomSub, registrySub);
+    const presenceSub = nc.subscribe(sub.presence());
+    trackedSubs.push(dmSub, canonicalDmSub, roomSub, registrySub, presenceSub);
+
+    (async () => {
+      for await (const msg of presenceSub) {
+        try {
+          applyPresence(decode(msg.data) as { agent: string; status: string; project?: string; host?: string });
+        } catch {}
+      }
+    })();
 
     for (const subscription of [dmSub, canonicalDmSub, roomSub]) {
       (async () => {
@@ -469,7 +517,9 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     (async () => {
       for await (const msg of registrySub) {
         try {
-          applyRegistryEvent(decode(msg.data) as { type: string; agentId: string; displayName: string; project?: string; host?: string; room?: string; rooms?: string[]; aliases?: string[] });
+          const event = decode(msg.data) as { type: string; agentId: string; displayName: string; project?: string; host?: string; room?: string; rooms?: string[]; aliases?: string[] };
+          applyRegistryEvent(event);
+          touch(event.agentId);
         } catch {}
       }
     })();
@@ -557,6 +607,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   pi.on("session_start", async () => {
     try {
       nc = await connect(NATS_CONNECT_OPTIONS);
+      lastConnectError = undefined;
       watchConnectionStatus(nc);
 
       // Register identity
@@ -585,6 +636,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
       // Pi only connects to NATS — it never starts it (the Claude/MCP side does, via its
       // bundled auto-start). So a failure here almost always means no server is up. Print
       // a clear, actionable hint instead of a raw stack trace.
+      lastConnectError = err instanceof Error ? err.message : String(err);
       const isLocal = /localhost|127\.0\.0\.1/.test(NATS_URL);
       console.error(
         `[bridge-harness-pi] Could not reach NATS at ${NATS_URL}.\n` +
@@ -617,6 +669,64 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     } catch {
       // The broker may close between the guarded publishes and drain.
     }
+  });
+
+  function joinRoom(room: string) {
+    joinedRooms.add(room);
+    publishRegistry("room-join", room);
+    // Refresh roster: ask who else is around.
+    publishRegistry("who-there");
+  }
+
+  // ---- /bridge: live overlay of every agent discovered on the bridge ----
+  const panelSource: PanelSource = {
+    natsUrl: NATS_URL,
+    self: () => ({ agentId, displayName, host, project, rooms: [...joinedRooms] }),
+    connected: () => nc !== null && !nc.isClosed(),
+    error: () => lastConnectError,
+    // Agents silent for 3× the stale threshold are long gone (crashed without an
+    // "offline"); keep them out of the panel rather than show ghosts forever.
+    agents: () => [...roster.values()].filter((a) => a.lastSeen === undefined || Date.now() - a.lastSeen < 3 * STALE_AFTER_MS),
+    refresh: () => { publishRegistry("who-there"); },
+    join: (room) => joinRoom(room),
+  };
+  const messagePrompt = (target: string) => `send to "${target}": `;
+
+  pi.registerCommand("bridge", {
+    description: "Show agents on the bridge; /bridge <name> starts a message to one",
+    getArgumentCompletions: (prefix) => {
+      const names = new Set<string>();
+      for (const a of panelSource.agents()) for (const n of [...a.aliases, a.agentId]) if (n.startsWith(prefix)) names.add(n);
+      return names.size ? [...names].sort().map((n) => ({ value: n, label: n })) : null;
+    },
+    handler: async (args, ctx) => {
+      const query = args.trim();
+      if (query) {
+        const agent = findAgent(panelSource.agents().filter((a) => a.agentId !== agentId), query);
+        if (agent) {
+          ctx.ui.setEditorText(messagePrompt(messageTarget(agent)));
+          return;
+        }
+      }
+      if (!ctx.hasUI) {
+        const names = panelSource.agents().map((a) => a.agentId).join(", ") || "none";
+        ctx.ui.notify(`Bridge agents: ${names}`, "info");
+        return;
+      }
+      // pi-tui only resolves inside the Pi host (its loader aliases it), so load it lazily.
+      const tuiLib = (await import("@earendil-works/pi-tui")) as unknown as PanelTui;
+      const result = await ctx.ui.custom<PanelResult>(
+        (tui, theme, _keybindings, done) =>
+          new BridgePanel(panelSource, tuiLib, theme, done, () => tui.requestRender(), { filter: query || undefined }),
+        { overlay: true },
+      );
+      if (result?.action === "message") {
+        ctx.ui.setEditorText(messagePrompt(result.target));
+      } else if (result?.action === "whoami") {
+        const aliases = dmAliases.size ? ` · aliases ${[...dmAliases].join(", ")}` : "";
+        ctx.ui.notify(`You are ${displayName} (${agentId}) on ${host} · rooms ${[...joinedRooms].join(", ")}${aliases}`, "info");
+      }
+    },
   });
 
   pi.registerTool({
@@ -732,10 +842,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
       if (action === "join_room" && room) {
         // Pi already receives every room via the wildcard subscription. join_room only
         // announces presence so other agents see us in this room (who_is_in / list_agents).
-        joinedRooms.add(room);
-        publishRegistry("room-join", room);
-        // Refresh roster: ask who else is around.
-        publishRegistry("who-there");
+        joinRoom(room);
         return {
           content: [{ type: "text", text: JSON.stringify({ ok: true, joined: room }) }],
           details: { ok: true, joined: room },
