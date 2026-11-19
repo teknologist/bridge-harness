@@ -18,6 +18,19 @@ import { ensureDmStream } from "../shared/jetstream.js";
 import { rewakeStatus } from "../shared/rewake-hook.js";
 import { applyPresenceEvent, type PresenceEvent } from "../shared/presence.js";
 import { buildAgentCommand } from "../spawn/command.js";
+import {
+  cleanSummary,
+  pickTask,
+  shareTaskEnabled,
+  TASK_SUMMARY_INPUT_CHARS,
+  TASK_SUMMARY_SYSTEM_PROMPT,
+  taskFromPrompt,
+  taskModel,
+} from "../shared/task.js";
+import { execFile } from "node:child_process";
+import { readFile, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { spawnAgentTab } from "../spawn/spawn.js";
 
 
@@ -42,6 +55,73 @@ const agentId = generateAgentId("claude-code");
 // Mutable so `set_name` can update the human-readable name at runtime.
 let displayName = getDisplayName("Claude Code");
 const host = getHost();
+
+// ── Current task (one line shown to other agents) ──────────────────────────────────
+// Sources, highest first: set_status > last real prompt (written by hooks/bridge-task.js,
+// clipped at once, then replaced by a small-model summary). BRIDGE_SHARE_TASK=0 disables.
+let explicitTask: string | undefined;
+let promptTask: string | undefined;
+let lastSentTask: string | undefined;
+const taskFile = join(tmpdir(), "bridge-harness", `task-${agentId.replace(/[^\w.-]/g, "_")}.txt`);
+
+function currentTask(): string | undefined {
+  if (!shareTaskEnabled()) return undefined;
+  return pickTask({ explicit: explicitTask, prompt: promptTask });
+}
+
+function presencePayload() {
+  lastSentTask = currentTask();
+  return { agent: agentId, status: "active", project, host, task: lastSentTask };
+}
+
+function announceTaskIfChanged() {
+  if (!nc || currentTask() === lastSentTask) return;
+  nc.publish(subjects.presence(), encode(presencePayload()));
+}
+
+// Runs the summariser through the Pi CLI (it owns the provider credentials, e.g.
+// openai-codex). Best-effort: on any failure the clipped prompt stays.
+function summariseWithPi(text: string): Promise<string | undefined> {
+  const cfg = taskModel();
+  if (!cfg) return Promise.resolve(undefined);
+  const args = [
+    "-p", "--no-session", "-ne", "-ns", "-nt", "--offline",
+    "--model", `${cfg.provider}/${cfg.model}:${cfg.thinking}`,
+    "--system-prompt", TASK_SUMMARY_SYSTEM_PROMPT,
+    text.slice(0, TASK_SUMMARY_INPUT_CHARS),
+  ];
+  return new Promise((resolve) => {
+    execFile(process.env.BRIDGE_PI_BIN ?? "pi", args, { timeout: 30_000, cwd: tmpdir() }, (err, stdout) => {
+      if (err) return resolve(undefined);
+      const lines = stdout.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("Warning:"));
+      resolve(cleanSummary(lines.at(-1)));
+    });
+  });
+}
+
+let taskFileMtime = 0;
+let summarySeq = 0;
+async function pollTaskFile() {
+  if (!shareTaskEnabled()) return;
+  try {
+    const st = await stat(taskFile);
+    if (st.mtimeMs === taskFileMtime) return;
+    taskFileMtime = st.mtimeMs;
+    const prompt = await readFile(taskFile, "utf8");
+    const clipped = taskFromPrompt(prompt);
+    if (!clipped) return; // "go ahead", slash commands: keep the current task
+    promptTask = clipped;
+    announceTaskIfChanged();
+    const seq = ++summarySeq;
+    const label = await summariseWithPi(prompt);
+    if (label && seq === summarySeq) {
+      promptTask = label;
+      announceTaskIfChanged();
+    }
+  } catch {
+    // No prompt yet (or hook not installed).
+  }
+}
 const joinedAt = Date.now();
 
 const codec = new TextEncoder();
@@ -218,7 +298,7 @@ async function switchBridge(newProject: string): Promise<string> {
   // Switch project and re-wire (mirrors startup): global listeners + new project lobby.
   project = target;
   await setupListeners(nc);
-  nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project, host }));
+  nc.publish(subjects.presence(), encode(presencePayload()));
   publishRegistry({ type: "join" });
   await subscribeToRoom(project);
   // Re-subscribe any name aliases (their subs were torn down above).
@@ -251,6 +331,7 @@ server.registerTool(
         displayName,
         project,
         host,
+        task: currentTask() ?? null,
         rooms: [...activeSubscriptions],
         aliases: [...dmAliases],
         // Surfaced here because it is the single most consequential thing that can be
@@ -266,6 +347,23 @@ server.registerTool(
       }, null, 2),
     }],
   })
+);
+
+server.registerTool(
+  "set_status",
+  {
+    description:
+      "Tell other agents in one short line (max 40 chars) what you are working on; it is " +
+      "shown next to your name in their agent lists. Call it when you start a distinct task. " +
+      "Overrides the automatic summary of the user's last prompt; an empty string clears it.",
+    inputSchema: z.object({ task: z.string().describe("e.g. \"Fix BR-FR-12 rounding\"") }),
+  },
+  async ({ task }) => {
+    explicitTask = task.trim() || undefined;
+    announceTaskIfChanged();
+    const shared = shareTaskEnabled();
+    return { content: [{ type: "text", text: JSON.stringify({ ok: true, task: currentTask() ?? null, ...(shared ? {} : { note: "BRIDGE_SHARE_TASK is off: your task is not shared." }) }) }] };
+  }
 );
 
 server.registerTool(
@@ -330,6 +428,7 @@ server.registerTool(
         displayName: a.displayName,
         project: a.project,
         host: a.host,
+        task: a.task,
         lastSeen: a.lastSeen,
       })), null, 2) }],
     };
@@ -423,6 +522,7 @@ server.registerTool(
         displayName: a.displayName,
         project: a.project,
         host: a.host,
+        task: a.task,
         rooms: [...a.rooms],
         aliases: [...a.aliases],
         lastSeen: a.lastSeen,
@@ -464,7 +564,7 @@ server.registerTool(
 // has a TTL) and their own `join`/`here` events were not retained, so both sides need to
 // re-introduce themselves or they stay mutually invisible despite being connected.
 function announceIdentity() {
-  nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project, host }));
+  nc.publish(subjects.presence(), encode(presencePayload()));
   publishRegistry({ type: "join" });
   for (const room of activeSubscriptions) publishRegistry({ type: "room-join", room });
   publishRegistry({ type: "who-there" });
@@ -509,7 +609,7 @@ async function main() {
   await setupListeners(nc);
 
   // Announce presence + identity
-  nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project, host }));
+  nc.publish(subjects.presence(), encode(presencePayload()));
   publishRegistry({ type: "join" });
   // Join the project room (shared lobby) by default — subscribes, announces presence,
   // (subscribeToRoom below registers the room, so reconnect re-announces it too)
@@ -519,8 +619,9 @@ async function main() {
 
   // Heartbeat
   setInterval(() => {
-    nc.publish(subjects.presence(), encode({ agent: agentId, status: "active", project, host }));
+    nc.publish(subjects.presence(), encode(presencePayload()));
   }, 30_000);
+  setInterval(() => void pollTaskFile(), 3_000).unref?.();
 
   let cleanedUp = false;
   function cleanup() {

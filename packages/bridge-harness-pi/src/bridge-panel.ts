@@ -15,6 +15,8 @@ export interface PanelAgent {
   aliases: Set<string>;
   joinedAt?: number;
   lastSeen?: number;
+  /** One-line summary of what the agent is working on (from its heartbeat). */
+  task?: string;
 }
 
 export interface PanelSelf {
@@ -25,6 +27,7 @@ export interface PanelSelf {
   rooms: string[];
   aliases?: string[];
   joinedAt?: number;
+  task?: string;
 }
 
 /** Nerd Font "user" glyph (nf-fa-user) marking the agent running this Pi session. */
@@ -129,6 +132,7 @@ export function matchesFilter(agent: PanelAgent, filter: string): boolean {
     agent.displayName,
     agent.host,
     agent.project,
+    agent.task,
     ...agent.aliases,
     ...agent.rooms,
   ];
@@ -242,6 +246,7 @@ export class BridgePanel {
       aliases: new Set(self.aliases ?? []),
       joinedAt: self.joinedAt,
       lastSeen: this.now(),
+      task: self.task,
     };
   }
 
@@ -435,11 +440,17 @@ export class BridgePanel {
           t.bold(g.host) +
           (g.host === self.host ? t.fg('dim', ' (this host)') : ''),
       });
-      for (const a of g.agents)
+      for (const a of g.agents) {
         lines.push({
           text: this.agentRow(a, a === sel, now, inner),
           agentId: a.agentId,
         });
+        if (a.task)
+          lines.push({
+            text: t.fg('dim', fit(`     ↳ ${a.task}`)),
+            agentId: a.agentId,
+          });
+      }
     }
     if (!list.some((a) => !this.isSelf(a))) {
       if (lines.length > 0) lines.push({ text: '' });
@@ -487,6 +498,7 @@ export class BridgePanel {
         ? ` ${t.fg('dim', `· last seen ${formatAge(now - sel.lastSeen)} ago`)}`
         : '';
       out.push(row(`${label('joined')}${joined}${seen}`));
+      out.push(row(`${label('task')}${sel.task ?? t.fg('dim', '—')}`));
     } else {
       out.push(
         row(

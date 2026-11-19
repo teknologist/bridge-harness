@@ -207,6 +207,26 @@ function setupHook(): boolean {
   return true;
 }
 
+/** UserPromptSubmit hook that lets the MCP server share a one-line task (src/shared/task.ts). */
+function setupTaskHook(): boolean {
+  const hookPath = join(dirname(getHookScriptPath()), "bridge-task.js");
+  const settings = readJson(SETTINGS_PATH) as {
+    hooks?: {
+      UserPromptSubmit?: Array<{ matcher?: string; hooks: Array<Record<string, unknown>> }>;
+    };
+  };
+  settings.hooks = settings.hooks ?? {};
+  const groups = (settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit ?? []);
+  if (groups.some((g) => g.hooks?.some((h) => (h.command as string | undefined)?.includes("bridge-task")))) {
+    warn("task hook already configured — skipping");
+    return false;
+  }
+  groups.push({ hooks: [{ type: "command", command: `node ${hookPath}` }] });
+  writeJson(SETTINGS_PATH, settings);
+  success("task hook configured in ~/.claude/settings.json (BRIDGE_SHARE_TASK=0 to opt out)");
+  return true;
+}
+
 async function setupNats(): Promise<void> {
   if (!detectNatsInstalled()) {
     error("nats-server not found in PATH.\n");
@@ -257,6 +277,7 @@ async function main() {
 
   setupMcp();
   setupHook();
+  setupTaskHook();
   setupSkill();
 
   log("\n✅ Setup complete! Restart Claude Code to activate the bridge.\n");

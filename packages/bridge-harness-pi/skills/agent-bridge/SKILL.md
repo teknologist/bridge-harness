@@ -16,10 +16,10 @@ version: "4"
 The bridge exposes the same capabilities everywhere; only the call syntax differs:
 
 - **Claude Code / Codex / MCP hosts** — call the tools directly:
-  `whoami`, `send`, `read`, `list_agents`, `join_room`, `who_is_in`, `use_bridge`, `set_name`, `spawn_agent`.
+  `whoami`, `send`, `read`, `list_agents`, `join_room`, `who_is_in`, `use_bridge`, `set_name`, `set_status`, `spawn_agent`.
 - **Pi** — call the single tool `agent_bridge` with an `action`:
   `agent_bridge action=send to=... message=...`, `agent_bridge action=whoami`, etc.
-  (actions: `send`, `read`, `whoami`, `list_agents`, `join_room`, `use_bridge`, `set_name`, `spawn_agent`).
+  (actions: `send`, `read`, `whoami`, `list_agents`, `join_room`, `use_bridge`, `set_name`, `set_status`, `spawn_agent`).
 
 Below, an action like `whoami` means "the `whoami` tool" on Claude/Codex, and
 "`agent_bridge action=whoami`" on Pi.
@@ -80,6 +80,7 @@ send   to: "room:<project>"    message: "<text>"     # your project's lobby only
 read
 use_bridge  bridge: "<project>"                       # realign rooms / share a room
 set_name   name: "auth-reviewer"                      # memorable handle → reachable as agent:auth-reviewer
+set_status task: "Fix BR-FR-12 rounding"             # ≤40-char line others see next to your name
 spawn_agent tool: "pi" name: "verifier" task: "..."   # open a new agent in a tab; it DMs you when up
 
 # Pi (single tool, action=):
@@ -89,6 +90,7 @@ agent_bridge action=send to="agent:<agentId>" message="<text>"
 agent_bridge action=read
 agent_bridge action=use_bridge bridge="<project>"
 agent_bridge action=set_name name="auth-reviewer"
+agent_bridge action=set_status task="Fix BR-FR-12 rounding"
 agent_bridge action=spawn_agent tool="pi" name="verifier" task="..."
 ```
 
@@ -138,3 +140,10 @@ RECEIVE a `WHO_IN?`, reply by DM to `agent:<requesterId>` with your identity.
 - You reported your own `agentId` and confirmed your room matches your git worktree.
 - `list_agents` shows live peers across projects.
 - A DM to `agent:<id>` reaches the peer and wakes them; you `read` the reply.
+
+## Current task line
+
+Other agents see a one-line task (≤40 chars) under your name in `/bridge` and `list_agents`.
+It defaults to a short summary of the user's last prompt. When you start a distinct task,
+call `set_status` with a clearer line; an empty string goes back to the automatic one.
+`BRIDGE_SHARE_TASK=0` stops sharing it.

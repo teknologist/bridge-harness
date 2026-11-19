@@ -22,6 +22,7 @@ export interface AgentPresence {
   displayName: string;
   project?: string;
   host?: string;
+  task?: string;
   rooms: Set<string>;
   // Memorable DM handles this agent also answers to (from set_name).
   aliases: Set<string>;

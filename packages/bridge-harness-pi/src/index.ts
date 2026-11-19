@@ -3,7 +3,16 @@ import { existsSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { hostname } from "node:os";
 import { fileURLToPath } from "node:url";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  cleanSummary,
+  pickTask,
+  shareTaskEnabled,
+  TASK_SUMMARY_INPUT_CHARS,
+  TASK_SUMMARY_SYSTEM_PROMPT,
+  taskFromPrompt,
+  taskModel,
+} from "./task.js";
 import { BridgePanel, STALE_AFTER_MS, findAgent, messageTarget, type PanelResult, type PanelSource, type PanelTui } from "./bridge-panel.js";
 
 // IMPORTANT: no static `import ... from "nats"` (not even `import type`). Pi loads this
@@ -226,6 +235,8 @@ interface AgentInfo {
   // When we first / last heard from this agent (heartbeat or registry event). Shown by /bridge.
   joinedAt?: number;
   lastSeen?: number;
+  // One-line "what I'm doing" from the peer's heartbeat (absent if it opted out).
+  task?: string;
 }
 
 interface InboxMessage {
@@ -345,6 +356,28 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   const roster = new Map<string, AgentInfo>();
   let lastConnectError: string | undefined;
   const startedAt = Date.now();
+
+  // ---- Current task, shared on every heartbeat so /bridge can show what each agent is doing ----
+  // Precedence: set_status > session name > last real user prompt. BRIDGE_SHARE_TASK=0 opts out.
+  let explicitTask: string | undefined;
+  let promptTask: string | undefined;
+  let lastSentTask: string | undefined;
+  function currentTask(): string | undefined {
+    if (!shareTaskEnabled()) return undefined;
+    let sessionName: string | undefined;
+    try { sessionName = pi.getSessionName(); } catch {}
+    return pickTask({ explicit: explicitTask, sessionName, prompt: promptTask });
+  }
+  function presencePayload() {
+    const task = currentTask();
+    lastSentTask = task;
+    return { agent: agentId, status: "active", project, host, task };
+  }
+  // Tell peers right away instead of waiting up to 30s for the next heartbeat.
+  function announceTaskIfChanged() {
+    if (!nc || currentTask() === lastSentTask) return;
+    publish(sub.presence(), encode(presencePayload()));
+  }
   // Resolve a DM target (an agentId OR a set_name alias) to its roster entry, so the
   // "not visible" warning doesn't fire for a name that IS reachable.
   const resolveAgent = (target: string): AgentInfo | undefined => {
@@ -394,7 +427,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
 
   // Heartbeats on bridge.presence keep lastSeen fresh, and let us learn about agents
   // whose registry announcement we missed. Mirrors applyPresenceEvent on the Claude side.
-  function applyPresence(event: { agent: string; status: string; project?: string; host?: string }) {
+  function applyPresence(event: { agent: string; status: string; project?: string; host?: string; task?: string }) {
     if (!event.agent || event.agent === agentId) return;
     if (event.status === "offline") {
       roster.delete(event.agent);
@@ -404,12 +437,15 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     if (existing) {
       if (event.project) existing.project = event.project;
       if (event.host) existing.host = event.host;
+      // Heartbeats always carry the sender's current task, so a missing one means cleared.
+      existing.task = event.task;
     } else {
       roster.set(event.agent, {
         agentId: event.agent,
         displayName: event.agent,
         project: event.project,
         host: event.host,
+        task: event.task,
         rooms: new Set(),
         aliases: new Set(),
       });
@@ -563,7 +599,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     // Switch project and re-wire (mirrors session_start).
     project = target;
     sub = makeSubjects(project);
-    if (!publish(sub.presence(), encode({ agent: agentId, status: "active", project, host }))) {
+    if (!publish(sub.presence(), encode(presencePayload()))) {
       return "Not connected to NATS";
     }
     publishRegistry("join");
@@ -581,7 +617,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   // has a TTL) and their `join`/`here` events were not retained, so both sides must
   // re-introduce themselves or they stay mutually invisible despite being connected.
   function announceIdentity() {
-    if (!publish(sub.presence(), encode({ agent: agentId, status: "active", project, host }))) return;
+    if (!publish(sub.presence(), encode(presencePayload()))) return;
     publishRegistry("join");
     for (const room of joinedRooms) publishRegistry("room-join", room);
     publishRegistry("who-there");
@@ -605,6 +641,50 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     });
   }
 
+  // The user's latest real prompt becomes the task unless the agent set one explicitly.
+  // Each prompt bumps this so a slow summary never overwrites a newer prompt's task.
+  let summarySeq = 0;
+  async function summarisePrompt(text: string, ctx: ExtensionContext, seq: number) {
+    const cfg = taskModel();
+    if (!cfg || !shareTaskEnabled()) return;
+    try {
+      const model = ctx.modelRegistry.find(cfg.provider, cfg.model);
+      if (!model) return;
+      const reply = await ctx.modelRegistry
+        .streamSimple(
+          model,
+          {
+            systemPrompt: TASK_SUMMARY_SYSTEM_PROMPT,
+            messages: [{ role: "user", content: [{ type: "text", text: text.slice(0, TASK_SUMMARY_INPUT_CHARS) }], timestamp: Date.now() }],
+          },
+          { reasoning: cfg.thinking as never, signal: AbortSignal.timeout(20_000) },
+        )
+        .result();
+      const label = cleanSummary(
+        reply.content.map((c) => (c.type === "text" ? c.text : "")).join(""),
+      );
+      if (label && seq === summarySeq) {
+        promptTask = label;
+        announceTaskIfChanged();
+      }
+    } catch {
+      // Summary is best-effort: the clipped prompt stays.
+    }
+  }
+
+  pi.on("input", (event, ctx) => {
+    if (event.source !== "extension") {
+      const t = taskFromPrompt(event.text);
+      if (t) {
+        promptTask = t; // shown at once; replaced by the model's summary when it lands
+        announceTaskIfChanged();
+        void summarisePrompt(event.text, ctx, ++summarySeq);
+      }
+    }
+    return { action: "continue" };
+  });
+  pi.on("session_info_changed", () => { announceTaskIfChanged(); });
+
   pi.on("session_start", async () => {
     try {
       nc = await connect(NATS_CONNECT_OPTIONS);
@@ -612,14 +692,14 @@ export default function bridgeExtension(pi: ExtensionAPI) {
       watchConnectionStatus(nc);
 
       // Register identity
-      publish(sub.presence(), encode({ agent: agentId, status: "active", project, host }));
+      publish(sub.presence(), encode(presencePayload()));
       publishRegistry("join");
       // Join the project room (shared lobby) by default for presence.
       publishRegistry("room-join", project);
 
       presenceInterval = setInterval(() => {
         try {
-          if (!publish(sub.presence(), encode({ agent: agentId, status: "active", project, host }))) {
+          if (!publish(sub.presence(), encode(presencePayload()))) {
             stopPresenceHeartbeat();
           }
         } catch (error) {
@@ -682,7 +762,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   // ---- /bridge: live overlay of every agent discovered on the bridge ----
   const panelSource: PanelSource = {
     natsUrl: NATS_URL,
-    self: () => ({ agentId, displayName, host, project, rooms: [...joinedRooms], aliases: [...dmAliases], joinedAt: startedAt }),
+    self: () => ({ agentId, displayName, host, project, rooms: [...joinedRooms], aliases: [...dmAliases], joinedAt: startedAt, task: currentTask() }),
     connected: () => nc !== null && !nc.isClosed(),
     error: () => lastConnectError,
     // Agents silent for 3× the stale threshold are long gone (crashed without an
@@ -744,13 +824,14 @@ export default function bridgeExtension(pi: ExtensionAPI) {
       properties: {
         action: {
           type: "string",
-          enum: ["send", "list_agents", "whoami", "join_room", "read", "use_bridge", "set_name", "spawn_agent"],
+          enum: ["send", "list_agents", "whoami", "join_room", "read", "use_bridge", "set_name", "set_status", "spawn_agent"],
           description:
             "send: message an agent (agent:<id>, global) or room (room:<name>, your project). " +
             "list_agents: who's online across all projects. whoami: your identity. read: pull " +
             "buffered messages. join_room: join a room in your project. use_bridge: (rarely " +
             "needed) join another project's room space. set_name: give yourself a memorable, " +
-            "stable handle so others can reach you as agent:<name>. spawn_agent: launch a NEW " +
+            "stable handle so others can reach you as agent:<name>. set_status: tell other agents in a few words " +
+            "(max 40 chars, pass it as task) what you are working on; call it when you start a new task; empty task clears it. spawn_agent: launch a NEW " +
             "agent (pi/claude) in a fresh terminal tab that auto-registers and reports back to you.",
         },
         to: { type: "string", description: '"agent:claude-code-9x2k" (global DM, preferred to reach a specific agent) or "room:venflowapp" (your project only)' },
@@ -759,7 +840,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
         bridge: { type: "string", description: "For use_bridge: the project/room-space to join — usually basename of your current git worktree (to realign rooms after moving worktrees), or another agent's project to share a room. Not needed for DMs (global)." },
         name: { type: "string", description: "For set_name: a memorable, unique handle (e.g. \"auth-reviewer\"). For spawn_agent: the handle the NEW agent will claim and how you'll address it." },
         tool: { type: "string", enum: ["pi", "claude"], description: "For spawn_agent: which agent CLI to launch." },
-        task: { type: "string", description: "For spawn_agent: what the new agent should do, in plain language." },
+        task: { type: "string", description: "For spawn_agent: what the new agent should do, in plain language. For set_status: what you are working on now, in a few words (max 40 chars)." },
       },
       required: ["action"],
     } as any,
@@ -773,7 +854,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
 
       if (action === "whoami") {
         const identity = {
-          agentId, displayName, project, host, rooms: [...joinedRooms], aliases: [...dmAliases],
+          agentId, displayName, project, host, rooms: [...joinedRooms], aliases: [...dmAliases], task: currentTask() ?? null,
           worktreeHint:
             `Rooms are scoped to "${project}" (the git worktree captured at launch). If your ` +
             `current working directory is a DIFFERENT worktree, run ` +
@@ -819,6 +900,14 @@ export default function bridgeExtension(pi: ExtensionAPI) {
           content: [{ type: "text", text: JSON.stringify({ error: "Not connected to NATS" }) }],
           details: { error: "Not connected to NATS" },
         };
+      }
+
+      if (action === "set_status") {
+        explicitTask = (task ?? message)?.trim() || undefined;
+        announceTaskIfChanged();
+        const shared = shareTaskEnabled();
+        const status = { ok: true, task: currentTask() ?? null, ...(shared ? {} : { note: "BRIDGE_SHARE_TASK is off: your task is not shared." }) };
+        return { content: [{ type: "text", text: JSON.stringify(status) }], details: status };
       }
 
       if (action === "set_name" && name) {
@@ -882,6 +971,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
           displayName: a.displayName,
           project: a.project,
           host: a.host,
+          task: a.task,
           rooms: [...a.rooms],
           aliases: [...a.aliases],
         }));

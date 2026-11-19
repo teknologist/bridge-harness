@@ -5,6 +5,8 @@ export interface PresenceEvent {
   status: string;
   project?: string;
   host?: string;
+  /** One-line summary of what the agent is doing; absent means none (clears a previous one). */
+  task?: string;
 }
 
 /**
@@ -36,6 +38,7 @@ export function applyPresenceEvent(
     existing.lastSeen = now;
     if (event.project) existing.project = event.project;
     if (event.host) existing.host = event.host;
+    existing.task = event.task;
     return true;
   }
 
@@ -46,6 +49,7 @@ export function applyPresenceEvent(
     displayName: event.agent,
     project: event.project,
     host: event.host,
+    task: event.task,
     rooms: new Set(),
     aliases: new Set(),
     joinedAt: now,
