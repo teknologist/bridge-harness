@@ -480,6 +480,7 @@ export class BridgePanel {
     out.push(rule('├', '┤'));
     if (sel) {
       const label = (s: string) => t.fg('dim', s.padEnd(9));
+      out.push(row(`${label('send to')}${t.fg('accent', messageTarget(sel))}`));
       out.push(row(`${label('id')}${sel.agentId}`));
       out.push(
         row(
@@ -542,10 +543,12 @@ export class BridgePanel {
         ? t.fg('warning', '○')
         : t.fg('success', '●');
     const age = a.lastSeen !== undefined ? formatAge(now - a.lastSeen) : '—';
-    const nameW = Math.max(10, Math.min(18, inner - 40));
+    // The name column shows the DM target (alias, else agent id) so it can be typed as-is
+    // into send; wide enough that a full claude-code-<pid> id is never truncated.
+    const nameW = Math.max(12, Math.min(24, inner - 36));
     const name = self
-      ? t.fg('accent', fit(agentLabel(a), nameW))
-      : fit(agentLabel(a), nameW);
+      ? t.fg('accent', fit(messageTarget(a), nameW))
+      : fit(messageTarget(a), nameW);
     const cells =
       name +
       ' ' +

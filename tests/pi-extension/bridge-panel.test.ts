@@ -153,6 +153,15 @@ describe('/bridge panel', () => {
     expect(result()).toEqual({ action: 'message', target: 'claude-code-41' });
   });
 
+  it('lists each agent by the id you type to message it, not a display name that would not route', () => {
+    const { text } = setup([
+      agent('claude-code-95123', { project: 'pa-api', host: 'mac', displayName: 'Claude Code' }),
+    ]);
+    const row = text().split('\n').find((l) => l.includes('claude-code-95123'));
+    expect(row).toBeDefined();
+    expect(text()).not.toContain('Claude Code ');
+  });
+
   it('j joins the first room of the selected agent we are not already in', () => {
     const { panel, joined, text } = setup(roster);
     panel.handleInput('j');
