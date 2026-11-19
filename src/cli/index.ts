@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { connect } from "nats";
-import { getProject, NATS_URL, PRESENCE_TTL_MS } from "../shared/config.js";
+import { getProject, isLocalNatsUrl, NATS_URL, PRESENCE_TTL_MS } from "../shared/config.js";
 import { subjects } from "../shared/subjects.js";
 import { checkNatsRunning } from "../nats-manager/index.js";
 
 async function requireNats(): Promise<void> {
-  if (!(await checkNatsRunning())) {
+  if (isLocalNatsUrl() && !(await checkNatsRunning())) {
     process.stderr.write(
       "✗ NATS is not running on localhost:4222\n" +
       "  Start it with: nats-server &\n" +

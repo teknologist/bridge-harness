@@ -5,6 +5,7 @@ import { connect, type NatsConnection, type Subscription } from "nats";
 import { z } from "zod";
 import {
   getProject,
+  isLocalNatsUrl,
   NATS_CONNECT_OPTIONS,
   PRESENCE_TTL_MS,
   generateAgentId,
@@ -478,7 +479,7 @@ function watchConnectionStatus(conn: NatsConnection) {
 }
 
 async function main() {
-  await ensureNats();
+  if (isLocalNatsUrl()) await ensureNats();
   nc = await connect(NATS_CONNECT_OPTIONS);
   watchConnectionStatus(nc);
 

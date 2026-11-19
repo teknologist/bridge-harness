@@ -72,7 +72,13 @@ export function getDisplayName(fallback: string): string {
   return surface ? `${fallback} @ ${surface}` : fallback;
 }
 
-export const NATS_URL = "nats://localhost:4222";
+export const NATS_URL = process.env.BRIDGE_NATS_URL ?? "nats://localhost:4222";
+
+// Only a broker on this machine is ours to auto-start. With a remote BRIDGE_NATS_URL,
+// spawning a local nats-server would leave an idle broker that nobody talks to.
+export function isLocalNatsUrl(url: string = NATS_URL): boolean {
+  return /^(nats:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(url.trim());
+}
 
 // nats.js defaults to 10 reconnect attempts and then closes the connection for good.
 // A long-lived agent session outlives any single broker restart, so giving up leaves it
