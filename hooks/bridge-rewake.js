@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { hookAgentId } from "./claude-pid.js";
+import { claudePid, hookAgentId } from "./claude-pid.js";
+import { claim, isAlive, ownsLock, release } from "./rewake-lock.js";
 import { connect, ErrorCode, AckPolicy, DeliverPolicy, RetentionPolicy, StorageType } from "nats";
 import { basename } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -103,7 +104,26 @@ async function tryGetDurableConsumer(nc, agentId) {
   return null;
 }
 
+// Keep exactly one waiter per agent (see rewake-lock.js). Every exit path below that is
+// not a wake exits 0, which Claude treats as "nothing to report".
+function holdLock() {
+  const owner = claudePid();
+  const path = claim(hookAgentId());
+  const quit = (why) => {
+    process.stderr.write(`[bridge-rewake] exiting: ${why}\n`);
+    release(path);
+    process.exit(0);
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => quit(`signal ${sig}`));
+  setInterval(() => {
+    if (!ownsLock(path)) quit("replaced by a newer waiter");
+    else if (!isAlive(owner)) quit(`Claude process ${owner} is gone`);
+  }, 15_000).unref();
+  process.on("exit", () => release(path));
+}
+
 async function run() {
+  holdLock();
   let backoff = 1000;
 
   while (true) {
