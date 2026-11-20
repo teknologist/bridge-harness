@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { hookAgentId } from "./claude-pid.js";
 import { connect, ErrorCode, AckPolicy, DeliverPolicy, RetentionPolicy, StorageType } from "nats";
 import { basename } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -22,16 +23,16 @@ function resolveProject() {
   return basename(process.cwd());
 }
 
-// The MCP server and this hook are children of the same Claude Code process, so
-// process.ppid yields the same agentId (`claude-code-<ppid>`) in both without any
-// coordination. DMs are global (`bridge.dm.<agentId>`); rooms are project-scoped.
+// The MCP server and this hook belong to the same Claude Code process, so both derive
+// `claude-code-<claude pid>` without coordination (see claude-pid.js for the Linux
+// /bin/sh wrinkle). DMs are global (`bridge.dm.<agentId>`); rooms are project-scoped.
 function resolveSubjects() {
   const project = resolveProject();
-  const agentId = process.env.BRIDGE_AGENT_ID ?? `claude-code-${process.ppid}`;
+  const agentId = hookAgentId();
   const dm = `bridge.dm.${agentId}`;              // dynamic id — durable JetStream consumer
   const canonicalDm = `bridge.dm.claude-code`;    // shared alias — core live subscribe only
   const room = `bridge.${project}.room.${project}`;
-  process.stderr.write(`[bridge-rewake] ppid=${process.ppid} dm=${dm} room=${room}\n`);
+  process.stderr.write(`[bridge-rewake] agent=${agentId} dm=${dm} room=${room}\n`);
   return { dm, canonicalDm, room, agentId };
 }
 

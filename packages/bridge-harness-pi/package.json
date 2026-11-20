@@ -1,58 +1,58 @@
 {
-	"name": "@cocodrino/bridge-harness-pi",
-	"version": "0.3.25",
-	"description": "Pi coding agent extension for bridge-harness — real-time NATS communication with Claude Code",
-	"type": "module",
-	"main": "./src/index.ts",
-	"author": "cocodrino",
-	"license": "MIT",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/cocodrino/bridge-harness.git",
-		"directory": "packages/bridge-harness-pi"
-	},
-	"homepage": "https://github.com/cocodrino/bridge-harness#readme",
-	"keywords": [
-		"pi-package",
-		"pi-agent",
-		"claude-code",
-		"nats",
-		"multi-agent",
-		"bridge",
-		"ai-agents"
-	],
-	"pi": {
-		"extensions": [
-			"./src/index.ts"
-		],
-		"skills": [
-			"./skills"
-		]
-	},
-	"engines": {
-		"node": ">=18.0.0"
-	},
-	"files": [
-		"src/",
-		"skills/",
-		"README.md",
-		"LICENSE"
-	],
-	"publishConfig": {
-		"access": "public"
-	},
-	"scripts": {
-		"build": "tsc"
-	},
-	"dependencies": {
-		"nats": "^2.29.0"
-	},
-	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": "*"
-	},
-	"peerDependenciesMeta": {
-		"@earendil-works/pi-coding-agent": {
-			"optional": true
-		}
-	}
+  "name": "@cocodrino/bridge-harness-pi",
+  "version": "0.3.26",
+  "description": "Pi coding agent extension for bridge-harness — real-time NATS communication with Claude Code",
+  "type": "module",
+  "main": "./src/index.ts",
+  "author": "cocodrino",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cocodrino/bridge-harness.git",
+    "directory": "packages/bridge-harness-pi"
+  },
+  "homepage": "https://github.com/cocodrino/bridge-harness#readme",
+  "keywords": [
+    "pi-package",
+    "pi-agent",
+    "claude-code",
+    "nats",
+    "multi-agent",
+    "bridge",
+    "ai-agents"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "src/",
+    "skills/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "nats": "^2.29.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  }
 }
