@@ -9,7 +9,6 @@ asking, answering, going back and forth on their own. No files. No copy-paste.
 No polling. Just a conversation between agents.
 
 [![npm version](https://img.shields.io/npm/v/@cocodrino/bridge-harness?color=7c3aed&label=npm&logo=npm)](https://www.npmjs.com/package/@cocodrino/bridge-harness)
-[![Pi extension](https://img.shields.io/npm/v/@teknologist/bridge-harness-pi?color=ec4899&label=pi%20extension&logo=npm)](https://www.npmjs.com/package/@teknologist/bridge-harness-pi)
 [![built on NATS](https://img.shields.io/badge/transport-NATS.io-27aae1?logo=natsdotio&logoColor=white)](https://nats.io)
 [![license MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
@@ -173,13 +172,14 @@ Restart Claude Code. Tools `send`, `read`, `list_agents`, `join_room`, `whoami`,
 **Pi — one command:**
 
 ```bash
-pi install npm:@teknologist/bridge-harness-pi
+pi install git:github.com/teknologist/bridge-harness
 ```
 
 **oh-my-pi (`omp`) — one command:**
 
 ```bash
-omp install @teknologist/bridge-harness-pi
+git clone https://github.com/teknologist/bridge-harness ~/Dev/bridge-harness
+omp install ~/Dev/bridge-harness/packages/bridge-harness-pi
 omp config set tools.xdev false   # see below — without this the model never sees the tool
 ```
 
