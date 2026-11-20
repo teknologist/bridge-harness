@@ -196,6 +196,17 @@ declared via the package's `pi.skills` field and loaded through their skills dis
 there's no extra step. (On Claude Code, `bridge-harness-setup` installs the skill for you;
 see [The `agent-bridge` skill](#the-agent-bridge-skill) to push it into more agents.)
 
+**Claude Code roster pane (optional mod):** a `/bridge` pane listing the agents on the
+bridge, grouped by host, like Pi's `/bridge` overlay. It runs a small bundled NATS
+helper for the session and reads `BRIDGE_NATS_URL` from your environment.
+
+```bash
+claude plugin install bridge-pane --marketplace teknologist/bridge-harness
+```
+
+Inside Claude Code: `/plugin install bridge-pane --marketplace teknologist/bridge-harness`,
+then `/bridge` to open the pane and `/bridge close` to close it.
+
 Both running? The bridge is live. **Tell one agent to message the other.**
 
 ### The `agent-bridge` skill
@@ -366,8 +377,9 @@ bridge-harness/
 │   ├── spawn/           # spawn_agent: host probe, command builder, tab dispatcher
 │   └── cli/             # debug CLI
 ├── packages/
-│   └── bridge-harness-pi/
-│       └── src/index.ts # Pi extension (TypeScript, ships as source)
+│   ├── bridge-harness-pi/
+│   │   └── src/index.ts # Pi extension (TypeScript, ships as source)
+│   └── bridge-harness-claude-mod/  # bridge-pane mod (Claude Code roster pane)
 ├── hooks/
 │   └── bridge-rewake.js # asyncRewake hook for Claude Code reactivity
 └── tests/               # unit tests (vitest, no NATS required)

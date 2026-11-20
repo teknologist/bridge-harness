@@ -1,6 +1,6 @@
 {
   "name": "@teknologist/bridge-harness-pi",
-  "version": "0.3.30",
+  "version": "0.3.31",
   "description": "Pi coding agent extension for bridge-harness — real-time NATS communication with Claude Code",
   "type": "module",
   "main": "./src/index.ts",

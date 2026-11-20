@@ -1,6 +1,6 @@
 {
   "name": "@cocodrino/bridge-harness",
-  "version": "0.3.30",
+  "version": "0.3.31",
   "description": "Real-time NATS bridge for AI agent communication — connects Claude Code and Pi with zero user intervention",
   "type": "module",
   "author": "cocodrino",
@@ -46,6 +46,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:mod": "esbuild packages/bridge-harness-claude-mod/helper/bridge-tap.src.mjs --bundle --platform=node --format=esm --target=node18 --minify --tsconfig-raw={} \"--banner:js=import{createRequire}from'node:module';const require=createRequire(import.meta.url);\" --outfile=packages/bridge-harness-claude-mod/helper/bridge-tap.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "node scripts/prepare.mjs"
@@ -57,6 +58,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.27.7",
     "typescript": "^5.7.0",
     "vitest": "^3.2.0"
   },

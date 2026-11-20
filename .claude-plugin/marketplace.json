@@ -1,0 +1,11 @@
+{
+  "name": "bridge-harness",
+  "owner": { "name": "teknologist" },
+  "plugins": [
+    {
+      "name": "bridge-pane",
+      "source": "./packages/bridge-harness-claude-mod",
+      "description": "bridge-harness roster pane for Claude Code"
+    }
+  ]
+}

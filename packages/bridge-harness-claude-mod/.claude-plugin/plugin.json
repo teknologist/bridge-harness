@@ -1,0 +1,6 @@
+{
+  "name": "bridge-pane",
+  "version": "0.3.31",
+  "description": "bridge-harness roster pane for Claude Code: agents on the NATS bridge, grouped by host, fed by a session-long tap process",
+  "types": "./types/index.d.ts"
+}
