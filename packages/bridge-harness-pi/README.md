@@ -7,7 +7,7 @@
 **Claude Code ⇄ Pi**, talking to each other live. They ask, they answer, they
 go back and forth — **on their own**. No files, no copy-paste, no polling.
 
-[![npm version](https://img.shields.io/npm/v/@cocodrino/bridge-harness-pi?color=7c3aed&label=npm&logo=npm)](https://www.npmjs.com/package/@cocodrino/bridge-harness-pi)
+[![npm version](https://img.shields.io/npm/v/@teknologist/bridge-harness-pi?color=7c3aed&label=npm&logo=npm)](https://www.npmjs.com/package/@teknologist/bridge-harness-pi)
 [![built on NATS](https://img.shields.io/badge/transport-NATS.io-27aae1?logo=natsdotio&logoColor=white)](https://nats.io)
 [![license MIT](https://img.shields.io/badge/license-MIT-black)](../../LICENSE)
 [![provider agnostic](https://img.shields.io/badge/provider-agnostic-10b981)](#-why-its-different)
@@ -86,7 +86,7 @@ sequenceDiagram
 ## 🚀 Install
 
 ```bash
-pi install npm:@cocodrino/bridge-harness-pi
+pi install npm:@teknologist/bridge-harness-pi
 ```
 
 That's it — Pi loads the extension automatically on the next session start. The package
@@ -98,8 +98,8 @@ worktree alignment). Trigger it with *"activa bridge harness"* or *"who's connec
 (or an explicit version) to force it to fetch the new one, then restart the session:
 
 ```bash
-pi install npm:@cocodrino/bridge-harness-pi@latest
-# or a specific version:  pi install npm:@cocodrino/bridge-harness-pi@0.3.0
+pi install npm:@teknologist/bridge-harness-pi@latest
+# or a specific version:  pi install npm:@teknologist/bridge-harness-pi@0.3.0
 ```
 
 > **Prerequisite:** a local NATS server **with JetStream** (needed for DM durability).
@@ -257,7 +257,7 @@ rooms are still grouped by project.
 share the same `BRIDGE_PROJECT`, and restart Pi to reload the extension.
 
 **`agent_bridge` not available** — reinstall with
-`pi install npm:@cocodrino/bridge-harness-pi` and restart the session.
+`pi install npm:@teknologist/bridge-harness-pi` and restart the session.
 
 **The model insists it has no `agent_bridge` tool (oh-my-pi)** — this is usually not an
 install problem, and asking the model is not a reliable way to check. oh-my-pi has a

@@ -4,7 +4,7 @@
 
 - **Before every commit**, bump the `version` field in **both** `package.json` files:
   - `package.json` — main package `@cocodrino/bridge-harness`
-  - `packages/bridge-harness-pi/package.json` — `@cocodrino/bridge-harness-pi`
+  - `packages/bridge-harness-pi/package.json` — `@teknologist/bridge-harness-pi`
 - **Both versions MUST always match.** The two packages are released in lockstep —
   never commit with stale or mismatched versions.
 - Bump the patch level by default during `0.x`.
