@@ -12,6 +12,14 @@ import { join } from "node:path";
 
 export const CLAUDE_SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
 
+/**
+ * Seconds Claude Code lets the rewake hook live. The hook must stay up for as long as the
+ * session sits idle, but a hook without `timeout` is killed after Claude Code's default
+ * 600 s — after that nothing listens until the next turn ends, so a session left idle for
+ * 10 minutes silently stops waking. 24 h covers any realistic idle stretch.
+ */
+export const REWAKE_HOOK_TIMEOUT_S = 86_400;
+
 /** Shape we care about; everything else in settings.json is ignored. */
 interface ClaudeSettings {
   hooks?: {
@@ -27,15 +35,28 @@ interface ClaudeSettings {
  * be installed from a local checkout or from the npm global root.
  */
 export function hasRewakeHook(settings: unknown): boolean {
+  return findRewakeHook(settings) !== undefined;
+}
+
+/** The configured bridge-rewake hook entry, if any (same matching as hasRewakeHook). */
+export function findRewakeHook(settings: unknown): Record<string, unknown> | undefined {
   const stop = (settings as ClaudeSettings | null)?.hooks?.Stop;
-  if (!Array.isArray(stop)) return false;
-  return stop.some((group) =>
-    Array.isArray(group?.hooks) &&
-    group.hooks.some((h) => {
+  if (!Array.isArray(stop)) return undefined;
+  for (const group of stop) {
+    if (!Array.isArray(group?.hooks)) continue;
+    const hook = group.hooks.find((h) => {
       const cmd = (h as { command?: unknown }).command;
       return typeof cmd === "string" && cmd.includes("bridge-rewake");
-    })
-  );
+    });
+    if (hook) return hook;
+  }
+  return undefined;
+}
+
+/** True when the hook would be killed before REWAKE_HOOK_TIMEOUT_S (incl. no timeout set). */
+export function rewakeTimeoutTooShort(hook: Record<string, unknown>): boolean {
+  const t = hook.timeout;
+  return typeof t !== "number" || t < REWAKE_HOOK_TIMEOUT_S;
 }
 
 /** Reads ~/.claude/settings.json, returning null when absent or unparseable. */
@@ -66,7 +87,17 @@ export function rewakeStatus(
         "Incoming messages will sit unread until you call `read` manually. Fix: npx @cocodrino/bridge-harness setup",
     };
   }
-  if (hasRewakeHook(settings)) return { installed: true, warning: "" };
+  const hook = findRewakeHook(settings);
+  if (hook && rewakeTimeoutTooShort(hook)) {
+    return {
+      installed: false,
+      warning:
+        `The bridge-rewake Stop hook has no long \`timeout\`, so Claude Code kills it after its ` +
+        `default 600 s: once this session idles for ~10 minutes, incoming messages stop waking ` +
+        `it. Fix: npx @cocodrino/bridge-harness setup (sets timeout: ${REWAKE_HOOK_TIMEOUT_S}).`,
+    };
+  }
+  if (hook) return { installed: true, warning: "" };
   return {
     installed: false,
     warning:

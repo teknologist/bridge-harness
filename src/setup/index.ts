@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
+import { findRewakeHook, rewakeTimeoutTooShort, REWAKE_HOOK_TIMEOUT_S } from "../shared/rewake-hook.js";
 import {
   detectNatsInstalled,
   getNatsInstallInstructions,
@@ -173,17 +174,18 @@ function setupHook(): boolean {
   settings.hooks = settings.hooks ?? {};
   settings.hooks.Stop = settings.hooks.Stop ?? [];
 
-  // Check if already configured
-  const alreadyConfigured = settings.hooks.Stop.some((group) =>
-    group.hooks?.some((h) => {
-      const cmd = h.command as string | undefined;
-      return cmd?.includes("bridge-rewake");
-    })
-  );
-
-  if (alreadyConfigured) {
-    warn("asyncRewake hook already configured — skipping");
-    return false;
+  // Already configured: only make sure it outlives a long idle (older installs had no
+  // timeout and were killed after Claude Code's default 600 s).
+  const existing = findRewakeHook(settings);
+  if (existing) {
+    if (!rewakeTimeoutTooShort(existing)) {
+      warn("asyncRewake hook already configured — skipping");
+      return false;
+    }
+    existing.timeout = REWAKE_HOOK_TIMEOUT_S;
+    writeJson(SETTINGS_PATH, settings);
+    success(`asyncRewake hook timeout raised to ${REWAKE_HOOK_TIMEOUT_S}s in ~/.claude/settings.json`);
+    return true;
   }
 
   // Find existing wildcard group or create one
@@ -197,6 +199,7 @@ function setupHook(): boolean {
     type: "command",
     command: `node ${hookPath}`,
     asyncRewake: true,
+    timeout: REWAKE_HOOK_TIMEOUT_S,
     rewakeMessage:
       "Incoming message via NATS bridge. Call the `read` tool from MCP `bridge-harness` to read it and respond with `send` if appropriate.",
     rewakeSummary: "Incoming message from bridge",

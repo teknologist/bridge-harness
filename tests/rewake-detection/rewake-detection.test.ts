@@ -11,10 +11,18 @@ const withHook = {
         matcher: "*",
         hooks: [
           { type: "command", command: "bash '/Users/x/.claude/hooks/herdr-agent-state.sh' idle", timeout: 10 },
-          { type: "command", command: "node /Users/x/proj/bridge-harness/hooks/bridge-rewake.js", asyncRewake: true },
+          { type: "command", command: "node /Users/x/proj/bridge-harness/hooks/bridge-rewake.js", asyncRewake: true, timeout: 86_400 },
         ],
       },
     ],
+  },
+};
+
+// What setup wrote before the timeout fix: Claude Code kills a hook without `timeout`
+// after 600 s, so the session stops waking once it has been idle for 10 minutes.
+const withLegacyHook = {
+  hooks: {
+    Stop: [{ hooks: [{ type: "command", command: "node /x/hooks/bridge-rewake.js", asyncRewake: true }] }],
   },
 };
 
@@ -106,6 +114,18 @@ describe("rewakeStatus", () => {
     expect(status.installed).toBe(false);
     expect(status.warning).toContain("never wake this session");
     expect(status.warning).toContain("bridge-harness setup");
+  });
+
+  it("flags a hook that Claude Code would kill after its default 600 s timeout", () => {
+    const status = rewakeStatus(withLegacyHook)!;
+    expect(status.installed).toBe(false);
+    expect(status.warning).toContain("600 s");
+    expect(status.warning).toContain("bridge-harness setup");
+  });
+
+  it("flags an explicit timeout shorter than an idle session can last", () => {
+    const short = { hooks: { Stop: [{ hooks: [{ command: "node bridge-rewake.js", timeout: 600 }] }] } };
+    expect(rewakeStatus(short)!.installed).toBe(false);
   });
 
   it("warns when there is no settings file at all", () => {
