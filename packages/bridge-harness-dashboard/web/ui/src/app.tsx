@@ -672,7 +672,7 @@ function Drawer(props: {
         ) : messages.length === 0 ? (
           <li class="muted messages__empty">
             {isDm
-              ? 'No messages in the last 30 minutes. Say something below.'
+              ? 'No messages with this agent yet. Say something below.'
               : 'Nothing posted since the dashboard joined.'}
           </li>
         ) : (

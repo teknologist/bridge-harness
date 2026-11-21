@@ -522,16 +522,12 @@ button {
 .row:hover > * {
   background: var(--flap-hi);
 }
+/* Open row: lifted background and amber id, no frame. */
 .row--on > * {
   background: var(--flap-hi);
-  border-top-color: var(--text-3);
-  border-bottom-color: var(--text-3);
 }
-.row--on > :first-child {
-  border-left: 1px solid var(--text-3);
-}
-.row--on > :last-child {
-  border-right: 1px solid var(--text-3);
+.row--on .agent__id {
+  color: var(--amber);
 }
 .row--stale > * {
   background: var(--housing-2);
@@ -657,9 +653,10 @@ button {
 .flap--muted {
   color: var(--text-2);
 }
-.flap--pending {
-  outline: 1.5px solid var(--amber);
-  outline-offset: 1px;
+/* Changed since last looked at: amber text, no box. */
+.flap--pending,
+.flap--pending .flap__ch {
+  color: var(--amber);
 }
 
 .flap__ch {
