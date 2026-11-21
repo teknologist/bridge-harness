@@ -5,6 +5,11 @@ export interface PresenceEvent {
   status: string;
   project?: string;
   host?: string;
+  /** Real repository name and current branch; `project` may be a worktree folder name. */
+  repo?: string;
+  branch?: string;
+  /** Whether the agent is in a turn right now; absent from agents that predate it. */
+  activity?: "working" | "idle";
   /** One-line summary of what the agent is doing; absent means none (clears a previous one). */
   task?: string;
 }
@@ -38,6 +43,9 @@ export function applyPresenceEvent(
     existing.lastSeen = now;
     if (event.project) existing.project = event.project;
     if (event.host) existing.host = event.host;
+    if (event.repo) existing.repo = event.repo;
+    if (event.branch) existing.branch = event.branch;
+    if (event.activity) existing.activity = event.activity;
     existing.task = event.task;
     return true;
   }
@@ -49,6 +57,9 @@ export function applyPresenceEvent(
     displayName: event.agent,
     project: event.project,
     host: event.host,
+    repo: event.repo,
+    branch: event.branch,
+    activity: event.activity,
     task: event.task,
     rooms: new Set(),
     aliases: new Set(),

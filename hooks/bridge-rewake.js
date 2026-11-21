@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { claudePid, hookAgentId } from "./claude-pid.js";
 import { claim, isAlive, ownsLock, release } from "./rewake-lock.js";
+import { writeActivity } from "./activity.js";
 import { connect, ErrorCode, AckPolicy, DeliverPolicy, RetentionPolicy, StorageType } from "nats";
 import { basename } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -143,6 +144,7 @@ async function run() {
           const content = payload.content ?? String(payload);
           emitWake(`Mensaje de ${from}: ${content}`);
           await nc.drain();
+          writeActivity(hookAgentId(), "working");
           process.exit(2);
         }
       };
@@ -169,7 +171,8 @@ async function run() {
               );
               for (const mm of batch) mm.ack();
               await nc.flush();
-              process.exit(2);
+              writeActivity(hookAgentId(), "working");
+          process.exit(2);
             }, 250);
           }
         }
@@ -194,4 +197,6 @@ async function run() {
   }
 }
 
+// This hook runs on Stop: the turn is over.
+writeActivity(hookAgentId(), "idle");
 run();

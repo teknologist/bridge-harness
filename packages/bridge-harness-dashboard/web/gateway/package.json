@@ -1,0 +1,6 @@
+{
+  "name": "bridge-dashboard-gateway",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@platformatic/gateway": "^3.79.0" }
+}

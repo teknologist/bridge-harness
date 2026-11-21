@@ -5,9 +5,12 @@
 // so process.ppid gives the same agentId in both. The file never leaves this machine;
 // only the summarised label goes on the bus. BRIDGE_SHARE_TASK=0 turns it all off.
 import { hookAgentId } from "./claude-pid.js";
+import { writeActivity } from "./activity.js";
 import { mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+writeActivity(hookAgentId(), "working");
 
 const share = (process.env.BRIDGE_SHARE_TASK ?? "").trim().toLowerCase();
 if (["0", "false", "no", "off"].includes(share)) process.exit(0);

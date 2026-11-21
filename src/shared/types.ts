@@ -8,6 +8,9 @@ export interface RegistryEvent {
   project?: string;
   // Machine the agent runs on (see getHost).
   host?: string;
+  // Real repository name and branch (see getRepoInfo); `project` may be a worktree folder.
+  repo?: string;
+  branch?: string;
   room?: string;
   // Present on "here" responses: every room the responder is in.
   rooms?: string[];
@@ -22,6 +25,9 @@ export interface AgentPresence {
   displayName: string;
   project?: string;
   host?: string;
+  repo?: string;
+  branch?: string;
+  activity?: "working" | "idle";
   task?: string;
   rooms: Set<string>;
   // Memorable DM handles this agent also answers to (from set_name).

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schemas.platformatic.dev/@platformatic/gateway/3.79.0.json",
+  "gateway": {
+    "applications": [
+      { "id": "api", "proxy": { "prefix": "/api" } },
+      { "id": "ui", "proxy": { "prefix": "/" } }
+    ],
+    "refreshTimeout": 1000
+  }
+}

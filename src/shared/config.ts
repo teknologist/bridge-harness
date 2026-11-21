@@ -1,4 +1,4 @@
-import { basename, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { hostname } from "node:os";
 
@@ -17,6 +17,29 @@ export function getProject(): string {
     // not a git repo, or git unavailable — fall back to the cwd name
   }
   return basename(resolve("."));
+}
+
+/**
+ * Real repository name and current branch of the working directory. A linked
+ * worktree's folder name (the `project` namespace) can be anything, e.g. the
+ * branch name, so viewers group agents by `repo` instead. Both are absent
+ * outside git; a detached HEAD reports the short commit.
+ */
+export function getRepoInfo(cwd = process.cwd()): { repo?: string; branch?: string } {
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  const info: { repo?: string; branch?: string } = {};
+  try {
+    // The common dir is shared by every worktree: <repo>/.git, or <repo>.git when bare.
+    const common = git("rev-parse", "--path-format=absolute", "--git-common-dir");
+    const name = basename(common) === ".git" ? basename(dirname(common)) : basename(common).replace(/\.git$/, "");
+    if (name) info.repo = name;
+    const branch = git("rev-parse", "--abbrev-ref", "HEAD");
+    info.branch = branch === "HEAD" ? git("rev-parse", "--short", "HEAD") : branch;
+  } catch {
+    // not a git repo, or git unavailable
+  }
+  return info;
 }
 
 export function generateAgentId(base: string): string {

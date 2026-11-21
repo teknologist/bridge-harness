@@ -9,7 +9,7 @@ import {
   NATS_CONNECT_OPTIONS,
   PRESENCE_TTL_MS,
   generateAgentId,
-  getDisplayName, getHost,
+  getDisplayName, getHost, getRepoInfo,
 } from "../shared/config.js";
 import { subjects } from "../shared/subjects.js";
 import { type AgentPresence, type RegistryEvent } from "../shared/types.js";
@@ -71,7 +71,7 @@ function currentTask(): string | undefined {
 
 function presencePayload() {
   lastSentTask = currentTask();
-  return { agent: agentId, status: "active", project, host, task: lastSentTask };
+  return { agent: agentId, status: "active", project, host, ...getRepoInfo(), activity, task: lastSentTask };
 }
 
 function announceTaskIfChanged() {
@@ -97,6 +97,20 @@ function summariseWithPi(text: string): Promise<string | undefined> {
       resolve(cleanSummary(lines.at(-1)));
     });
   });
+}
+
+// Written by hooks/activity.js (UserPromptSubmit/wake → working, Stop → idle).
+const activityFile = join(tmpdir(), "bridge-harness", `activity-${agentId.replace(/[^\w.-]/g, "_")}.txt`);
+let activity: "working" | "idle" | undefined;
+async function pollActivityFile() {
+  try {
+    const next = (await readFile(activityFile, "utf8")).trim();
+    if ((next !== "working" && next !== "idle") || next === activity) return;
+    activity = next;
+    if (nc) nc.publish(subjects.presence(), encode(presencePayload()));
+  } catch {
+    // Hooks not installed or no turn yet: leave activity unknown.
+  }
 }
 
 let taskFileMtime = 0;
@@ -149,7 +163,7 @@ function resolvePresence(target: string): AgentPresence | undefined {
 function publishRegistry(event: Omit<RegistryEvent, "agentId" | "displayName" | "project" | "host" | "aliases" | "timestamp">) {
   nc.publish(
     subjects.registry(),
-    encode({ ...event, agentId, displayName, project, host, aliases: [...dmAliases], timestamp: Date.now() } satisfies RegistryEvent)
+    encode({ ...event, agentId, displayName, project, host, ...getRepoInfo(), aliases: [...dmAliases], timestamp: Date.now() } satisfies RegistryEvent)
   );
 }
 
@@ -622,6 +636,7 @@ async function main() {
     nc.publish(subjects.presence(), encode(presencePayload()));
   }, 30_000);
   setInterval(() => void pollTaskFile(), 3_000).unref?.();
+  setInterval(() => void pollActivityFile(), 1_000).unref?.();
 
   let cleanedUp = false;
   function cleanup() {

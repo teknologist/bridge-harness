@@ -201,6 +201,26 @@ function getHost(): string {
   return hostname().replace(/\.local$/i, "").split(".")[0] || "unknown";
 }
 
+// Real repository name and branch (mirror of src/shared/config.ts getRepoInfo). A worktree
+// folder (the `project` namespace) may be named anything, so viewers group by `repo`.
+function getRepoInfo(): { repo?: string; branch?: string } {
+  const { execFileSync } = require("node:child_process");
+  const { basename } = require("node:path");
+  const git = (...args: string[]): string =>
+    execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  const info: { repo?: string; branch?: string } = {};
+  try {
+    const common = git("rev-parse", "--path-format=absolute", "--git-common-dir");
+    const name = basename(common) === ".git" ? basename(dirname(common)) : basename(common).replace(/\.git$/, "");
+    if (name) info.repo = name;
+    const branch = git("rev-parse", "--abbrev-ref", "HEAD");
+    info.branch = branch === "HEAD" ? git("rev-parse", "--short", "HEAD") : branch;
+  } catch {
+    // not a git repo, or git unavailable
+  }
+  return info;
+}
+
 function makeSubjects(project: string) {
   return {
     // Rooms are project-scoped (isolated per worktree).
@@ -371,7 +391,14 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   function presencePayload() {
     const task = currentTask();
     lastSentTask = task;
-    return { agent: agentId, status: "active", project, host, task };
+    return { agent: agentId, status: "active", project, host, ...getRepoInfo(), activity, task };
+  }
+  // Working while a turn runs, idle after agent_end; published at once on change.
+  let activity: "working" | "idle" = "idle";
+  function setActivity(next: "working" | "idle") {
+    if (next === activity) return;
+    activity = next;
+    if (nc) publish(sub.presence(), encode(presencePayload()));
   }
   // Tell peers right away instead of waiting up to 30s for the next heartbeat.
   function announceTaskIfChanged() {
@@ -406,14 +433,14 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     type: "join" | "leave" | "room-join" | "room-leave" | "who-there",
     room?: string,
   ) {
-    publish(sub.registry(), encode({ type, agentId, displayName, project, host, room, aliases: [...dmAliases], timestamp: Date.now() }));
+    publish(sub.registry(), encode({ type, agentId, displayName, project, host, ...getRepoInfo(), room, aliases: [...dmAliases], timestamp: Date.now() }));
   }
 
   // Identity response to a who-there query, carrying every room we're in.
   function publishHere() {
     publish(
       sub.registry(),
-      encode({ type: "here", agentId, displayName, project, host, rooms: [...joinedRooms], aliases: [...dmAliases], timestamp: Date.now() }),
+      encode({ type: "here", agentId, displayName, project, host, ...getRepoInfo(), rooms: [...joinedRooms], aliases: [...dmAliases], timestamp: Date.now() }),
     );
   }
 
@@ -498,6 +525,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     // We're about to trigger (or steer into) a turn, so mark it active. This makes
     // subsequent incoming messages buffer instead of interrupting. Reset on agent_end.
     isProcessingTurn = true;
+    setActivity("working");
     pi.sendMessage(
       { content, customType: "bridge-delivery", display: false },
       { triggerTurn: true, deliverAs: "steer" }
@@ -673,6 +701,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   }
 
   pi.on("input", (event, ctx) => {
+    setActivity("working");
     if (event.source !== "extension") {
       const t = taskFromPrompt(event.text);
       if (t) {
@@ -734,6 +763,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
 
   pi.on("agent_end", () => {
     isProcessingTurn = false;
+    setActivity("idle");
     // Safety net: deliver anything the agent didn't pull via `read` during its turn.
     flushInbox();
   });
@@ -851,6 +881,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
 
       // The agent is calling a tool, so a turn is active: buffer incoming messages.
       isProcessingTurn = true;
+      setActivity("working");
 
       if (action === "whoami") {
         const identity = {

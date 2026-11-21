@@ -1,0 +1,25 @@
+{
+  "name": "@cocodrino/bridge-harness-dashboard",
+  "version": "0.3.32",
+  "private": true,
+  "description": "Web dashboard for the bridge-harness agent fleet: live roster, threads, actions, history",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "workspaces": [
+    "web/*"
+  ],
+  "scripts": {
+    "prestart": "test -f ../../dist/shared/index.js || npm --prefix ../.. run build",
+    "predev": "test -f ../../dist/shared/index.js || npm --prefix ../.. run build",
+    "dev": "wattpm dev",
+    "build": "wattpm build",
+    "start": "wattpm start",
+    "typecheck": "tsc --noEmit -p web/api && tsc --noEmit -p web/ui"
+  },
+  "dependencies": {
+    "wattpm": "^3.79.0"
+  }
+}
