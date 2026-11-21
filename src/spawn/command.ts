@@ -96,10 +96,19 @@ function shSingleQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * Where an agent starts when the caller names no folder and has none of its own (the
+ * dashboard, or any remote host). Not ~: Claude Code never remembers trusting the home
+ * folder and asks again on every start, while this folder is trusted once per host.
+ * Created on the target if missing.
+ */
+export const DEFAULT_AGENT_DIR = "~/bridge-agents";
+
 // `cd` into dir. A leading ~ stays unquoted so the TARGET machine's shell expands it
 // (a remote host's home differs from ours); the rest is single-quoted.
 export function cdCommand(dir: string): string {
   if (dir === "~") return "cd ~";
+  if (dir === DEFAULT_AGENT_DIR) return `mkdir -p ${DEFAULT_AGENT_DIR} && cd ${DEFAULT_AGENT_DIR}`;
   if (dir.startsWith("~/")) return `cd ~/${shSingleQuote(dir.slice(2))}`;
   return `cd ${shSingleQuote(dir)}`;
 }
@@ -114,8 +123,8 @@ export function buildAgentCommand(req: SpawnRequest): AgentCommand {
     prompt,
   ];
   const shell = `${argv[0]} ${argv.slice(1).map(shSingleQuote).join(" ")}`;
-  const cwd = req.cwd?.trim() || undefined;
   const host = req.host?.trim() || undefined;
+  const cwd = req.cwd?.trim() || (host ? DEFAULT_AGENT_DIR : undefined);
   if (!cwd) return { argv, shell, prompt, label: req.name, host };
   // argv-based spawners (rex, zellij) get a tiny sh wrapper so the cd (and ~) happens on
   // the target; the prompt still travels as a separate arg, never re-parsed by a shell.

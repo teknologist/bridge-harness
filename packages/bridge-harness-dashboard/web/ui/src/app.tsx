@@ -1621,7 +1621,7 @@ function DirField({
           value={value}
           onInput={(e) => onChange(e.currentTarget.value)}
           onFocus={() => setOpen(true)}
-          placeholder={host ? '~ (home on that host)' : '~ (home)'}
+          placeholder={host ? '~/bridge-agents (on that host)' : '~/bridge-agents'}
           aria-label="Directory"
           spellcheck={false}
           autocomplete="off"

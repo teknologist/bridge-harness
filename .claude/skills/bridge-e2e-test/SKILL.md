@@ -30,8 +30,9 @@ the test).
    sh .claude/skills/bridge-e2e-test/spawn-pair.sh <OWNER> ["<remote host>"]
    ```
    Both lines must say `"spawned":true`. Note the printed `run=` id.
-   On a host where the home folder was never trusted, the remote tab stops at Claude's
-   "trust this folder" prompt. Answer it: find the block (see Cleanup), then
+   Agents start in `~/bridge-agents`, which Claude trusts after the first answer. On a host
+   that has never run an agent there, the remote tab stops once at "trust this folder".
+   Answer it: find the block (see Cleanup), then
    `rex -S "<host>" send -b <block> $'\e[B'` and `rex -S "<host>" send -b <block> $'\r'`.
 3. Wait for bridge DMs and read them with `read`. Allow about 6 minutes, because the agents
    wait for each other. You should receive:

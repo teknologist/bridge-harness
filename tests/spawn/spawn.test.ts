@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { spawnAgentTab, type Runner } from "../../src/spawn/spawn.js";
-import { buildAgentCommand } from "../../src/spawn/command.js";
+import { buildAgentCommand, DEFAULT_AGENT_DIR } from "../../src/spawn/command.js";
 import { type SpawnCapability } from "../../src/spawn/probe.js";
 
 const cmd = buildAgentCommand({ tool: "pi", name: "verifier", task: "check X", requester: "claude-code-1" });
@@ -30,6 +30,18 @@ describe("buildAgentCommand cwd", () => {
     expect(c.argv.slice(0, 3)).toEqual(["sh", "-c", `cd ~/'my dir' && exec "$@"`]);
     expect(c.argv.slice(4)).toEqual(["pi", "--model", "openai-codex/auto", c.prompt]);
     expect(c.shell.startsWith("cd ~/'my dir' && pi '")).toBe(true);
+  });
+
+  // Claude Code re-asks "trust this folder?" on every start in ~, so a remote agent with no
+  // folder would block on that prompt. It starts in a folder trusted once per host instead.
+  it("starts a remote agent with no folder in ~/bridge-agents, creating it", () => {
+    const c = buildAgentCommand({ tool: "claude", name: "v", task: "t", requester: "r", host: "glod" });
+    expect(c.cwd).toBe(DEFAULT_AGENT_DIR);
+    expect(c.argv[2]).toBe(`mkdir -p ~/bridge-agents && cd ~/bridge-agents && exec "$@"`);
+  });
+
+  it("leaves a local agent with no folder in the caller's directory", () => {
+    expect(buildAgentCommand({ tool: "claude", name: "v", task: "t", requester: "r" }).cwd).toBeUndefined();
   });
 });
 

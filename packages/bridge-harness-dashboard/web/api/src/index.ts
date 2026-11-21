@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import fastify from 'fastify';
-import { buildAgentCommand } from '../../../../../dist/spawn/command.js';
+import { buildAgentCommand, DEFAULT_AGENT_DIR } from '../../../../../dist/spawn/command.js';
 import { rexBin, spawnAgentTab } from '../../../../../dist/spawn/spawn.js';
 import type { DirsResponse, HistoryResponse, HostsResponse, MessagesResponse, PaneInput, PaneScreen, SelfRequest, SendRequest, ServerEvent, SpawnRequest, SpawnResponse, TranscriptResponse } from '../../../shared/contract.ts';
 import { PANE_KEYS } from '../../../shared/contract.ts';
@@ -158,7 +158,7 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
     if (body.host && !(await rexHosts()).includes(body.host)) return reply.code(400).send({ error: `unknown rex host: ${body.host}` });
     const launcher = body.tool === 'pi' ? piLauncher : undefined;
     let cmd;
-    try { cmd = buildAgentCommand({ ...body, cwd: body.cwd || (body.host ? undefined : '~'), requester: fleet.self.agentId, launcher }); } catch (err) { return reply.code(400).send({ error: (err as Error).message }); }
+    try { cmd = buildAgentCommand({ ...body, cwd: body.cwd || DEFAULT_AGENT_DIR, requester: fleet.self.agentId, launcher }); } catch (err) { return reply.code(400).send({ error: (err as Error).message }); }
     const res: SpawnResponse = spawnAgentTab(cmd);
     return { spawned: res.spawned, detail: res.detail, manualCommand: res.manualCommand };
   });
