@@ -322,9 +322,29 @@ function cdCommand(dir: string): string {
   return `cd ${shSingleQuote(dir)}`;
 }
 
-function buildAgentCommand(tool: "pi" | "claude", name: string, task: string, requester: string, requesterDisplay?: string, cwd?: string, host?: string): AgentCommand {
+type AgentTool = "pi" | "claude" | "codex";
+
+/** Mirror of src/spawn/command.ts DEFAULT_MODELS / THINKING_LEVELS / modelArgs. */
+const DEFAULT_MODELS: Record<AgentTool, string> = { claude: "claude-opus-5-5", pi: "openai-codex/auto", codex: "gpt-6.2-sol" };
+const THINKING_LEVELS: Record<AgentTool, readonly string[]> = {
+  claude: ["low", "medium", "high", "xhigh", "max"],
+  pi: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+  codex: ["low", "medium", "high", "xhigh", "max", "ultra"],
+};
+
+function modelArgs(tool: AgentTool, model?: string, thinking?: string): string[] {
+  const m = model?.trim() || DEFAULT_MODELS[tool];
+  const t = thinking?.trim();
+  if (t && !THINKING_LEVELS[tool].includes(t)) {
+    throw new Error(`unknown thinking level "${t}" for ${tool} (use ${THINKING_LEVELS[tool].join(", ")})`);
+  }
+  if (tool === "codex") return ["-m", m, ...(t ? ["-c", `model_reasoning_effort="${t}"`] : [])];
+  return ["--model", m, ...(t ? [tool === "claude" ? "--effort" : "--thinking", t] : [])];
+}
+
+function buildAgentCommand(tool: AgentTool, name: string, task: string, requester: string, requesterDisplay?: string, cwd?: string, host?: string, model?: string, thinking?: string): AgentCommand {
   const prompt = buildStartupPrompt(name, task, requester, requesterDisplay);
-  const argv = [tool, prompt];
+  const argv = [tool, ...modelArgs(tool, model, thinking), prompt];
   const shell = `${argv[0]} ${argv.slice(1).map(shSingleQuote).join(" ")}`;
   const dir = cwd?.trim() || undefined;
   const target = host?.trim() || undefined;
@@ -929,16 +949,18 @@ export default function bridgeExtension(pi: ExtensionAPI) {
         room: { type: "string", description: "Room name for join_room (scoped to your own project)" },
         bridge: { type: "string", description: "For use_bridge: the project/room-space to join — usually basename of your current git worktree (to realign rooms after moving worktrees), or another agent's project to share a room. Not needed for DMs (global)." },
         name: { type: "string", description: "For set_name: a memorable, unique handle (e.g. \"auth-reviewer\"). For spawn_agent: the handle the NEW agent will claim and how you'll address it." },
-        tool: { type: "string", enum: ["pi", "claude"], description: "For spawn_agent: which agent CLI to launch." },
+        tool: { type: "string", enum: ["pi", "claude", "codex"], description: "For spawn_agent: which agent CLI to launch." },
         task: { type: "string", description: "For spawn_agent: what the new agent should do, in plain language. For set_status: what you are working on now, in a few words (max 40 chars)." },
         cwd: { type: "string", description: "For spawn_agent (optional): directory to start the new agent in, on the target machine (\"~\" allowed)." },
         host: { type: "string", description: "For spawn_agent (optional): Rex host label (from `rex hosts`) to start the agent on another machine." },
+        model: { type: "string", description: "For spawn_agent (optional): model to run. Default: claude-opus-5-5 (claude), openai-codex/auto (pi), gpt-6.2-sol (codex)." },
+        thinking: { type: "string", description: "For spawn_agent (optional): thinking level. claude: low|medium|high|xhigh|max; pi: off|minimal|low|medium|high|xhigh|max; codex: low|medium|high|xhigh|max|ultra." },
       },
       required: ["action"],
     } as any,
     async execute(_toolCallId, args, _signal, _onUpdate, _ctx) {
-      const { action, to, message, room, bridge, name, tool, task, cwd, host: spawnHost } = args as {
-        action: string; to?: string; message?: string; room?: string; bridge?: string; name?: string; tool?: "pi" | "claude"; task?: string; cwd?: string; host?: string;
+      const { action, to, message, room, bridge, name, tool, task, cwd, host: spawnHost, model, thinking } = args as {
+        action: string; to?: string; message?: string; room?: string; bridge?: string; name?: string; tool?: "pi" | "claude" | "codex"; task?: string; cwd?: string; host?: string; model?: string; thinking?: string;
       };
 
       // The agent is calling a tool, so a turn is active: buffer incoming messages.
@@ -977,7 +999,12 @@ export default function bridgeExtension(pi: ExtensionAPI) {
       }
 
       if (action === "spawn_agent" && tool && name && task) {
-        const cmd = buildAgentCommand(tool, name.trim(), task, agentId, displayName, cwd, spawnHost);
+        let cmd: AgentCommand;
+        try {
+          cmd = buildAgentCommand(tool, name.trim(), task, agentId, displayName, cwd, spawnHost, model, thinking);
+        } catch (err) {
+          return { content: [{ type: "text", text: JSON.stringify({ ok: false, error: (err as Error).message }) }], details: {} };
+        }
         const result = spawnAgentTab(cmd);
         const summary = result.spawned
           ? { ok: true, spawned: true, agent: name, backend: result.backend, detail: result.detail,

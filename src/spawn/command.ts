@@ -1,9 +1,9 @@
-// Builds the exact command line that launches a new agent (pi or claude) with a
+// Builds the exact command line that launches a new agent (pi, claude or codex) with a
 // startup prompt telling it to get on the bridge and report back. The SAME command is
 // used two ways: fed to a multiplexer to spawn a tab, or printed for the human to run
 // when we can't spawn (see spawn.ts). One source of truth, zero duplication.
 
-export type AgentTool = "pi" | "claude";
+export type AgentTool = "pi" | "claude" | "codex";
 
 export interface SpawnRequest {
   /** Which agent CLI to launch. */
@@ -22,6 +22,41 @@ export interface SpawnRequest {
   cwd?: string;
   /** Rex host label (`rex hosts`) to start the agent on instead of this machine. */
   host?: string;
+  /** Model to run; defaults to DEFAULT_MODELS[tool]. */
+  model?: string;
+  /** Thinking / reasoning effort level, one of THINKING_LEVELS[tool]; default: the CLI's own. */
+  thinking?: string;
+}
+
+/** The model each agent starts on unless the spawner picks another. */
+export const DEFAULT_MODELS: Record<AgentTool, string> = {
+  claude: "claude-opus-5-5",
+  pi: "openai-codex/auto",
+  codex: "gpt-6.2-sol",
+};
+
+/** Thinking levels each CLI accepts (claude --effort, pi --thinking, codex model_reasoning_effort). */
+export const THINKING_LEVELS: Record<AgentTool, readonly string[]> = {
+  claude: ["low", "medium", "high", "xhigh", "max"],
+  pi: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+  codex: ["low", "medium", "high", "xhigh", "max", "ultra"],
+};
+
+/** CLI flags selecting the model and thinking level; they go before the prompt. */
+export function modelArgs(tool: AgentTool, model?: string, thinking?: string): string[] {
+  const m = model?.trim() || DEFAULT_MODELS[tool];
+  const t = thinking?.trim();
+  if (t && !THINKING_LEVELS[tool].includes(t)) {
+    throw new Error(`unknown thinking level "${t}" for ${tool} (use ${THINKING_LEVELS[tool].join(", ")})`);
+  }
+  switch (tool) {
+    case "claude":
+      return ["--model", m, ...(t ? ["--effort", t] : [])];
+    case "pi":
+      return ["--model", m, ...(t ? ["--thinking", t] : [])];
+    case "codex":
+      return ["-m", m, ...(t ? ["-c", `model_reasoning_effort="${t}"`] : [])];
+  }
 }
 
 export interface AgentCommand {
@@ -71,9 +106,13 @@ export function cdCommand(dir: string): string {
 
 export function buildAgentCommand(req: SpawnRequest): AgentCommand {
   const prompt = buildStartupPrompt(req);
-  // Both `pi` and `claude` take the prompt as a positional arg and start an INTERACTIVE
+  // `pi`, `claude` and `codex` all take the prompt as a positional arg and start an INTERACTIVE
   // session by default (no -p), so the spawned agent stays alive to report back.
-  const argv = [...(req.launcher?.length ? req.launcher : [req.tool]), prompt];
+  const argv = [
+    ...(req.launcher?.length ? req.launcher : [req.tool]),
+    ...modelArgs(req.tool, req.model, req.thinking),
+    prompt,
+  ];
   const shell = `${argv[0]} ${argv.slice(1).map(shSingleQuote).join(" ")}`;
   const cwd = req.cwd?.trim() || undefined;
   const host = req.host?.trim() || undefined;

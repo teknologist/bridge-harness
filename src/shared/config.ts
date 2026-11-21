@@ -49,6 +49,28 @@ export function generateAgentId(base: string): string {
   return `${base}-${suffix}`;
 }
 
+/**
+ * Which coding agent launched this MCP server. Codex and Claude Code run the same server,
+ * and the parent process is the only tell at startup: the MCP client name arrives later,
+ * after the agent ID must already exist. Defaults to Claude Code.
+ */
+export function detectMcpHost(command = parentCommand()): { base: string; name: string } {
+  return /^codex\b/i.test(basename(command ?? ""))
+    ? { base: "codex", name: "Codex" }
+    : { base: "claude-code", name: "Claude Code" };
+}
+
+function parentCommand(): string | undefined {
+  try {
+    return execFileSync("ps", ["-o", "comm=", "-p", String(process.ppid)], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return undefined; // no ps, or no parent: assume Claude Code
+  }
+}
+
 // When running under cmux, resolve the human-readable name of the current surface
 // so multiple instances are distinguishable on the bridge. Returns null outside cmux.
 function getCmuxSurfaceName(): string | null {

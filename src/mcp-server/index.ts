@@ -8,6 +8,7 @@ import {
   isLocalNatsUrl,
   NATS_CONNECT_OPTIONS,
   PRESENCE_TTL_MS,
+  detectMcpHost,
   generateAgentId,
   getDisplayName, getHost, getRepoInfo,
 } from "../shared/config.js";
@@ -53,9 +54,10 @@ let nc: NatsConnection;
 
 // Mutable so `use_bridge` can move us to another namespace at runtime.
 let project = getProject();
-const agentId = generateAgentId("claude-code");
+const mcpHost = detectMcpHost();
+const agentId = generateAgentId(mcpHost.base);
 // Mutable so `set_name` can update the human-readable name at runtime.
-let displayName = getDisplayName("Claude Code");
+let displayName = getDisplayName(mcpHost.name);
 const host = getHost();
 
 // ── Current task (one line shown to other agents) ──────────────────────────────────
@@ -552,22 +554,29 @@ server.registerTool(
   "spawn_agent",
   {
     description:
-      "Spawn a NEW agent (pi or claude) in a fresh terminal tab/pane and have it auto-register " +
+      "Spawn a NEW agent (pi, claude or codex) in a fresh terminal tab/pane and have it auto-register " +
       "on the bridge, then report back to YOU. Use it when the user says e.g. \"crea un agente de " +
       "pi para que verifique X\". It detects the terminal host (cmux, tmux, zellij) and opens the " +
       "tab programmatically; if the host can't (a plain emulator), it returns the exact command " +
       "for the user to run. The new agent is told to set_name to `name`, DM you to confirm it's " +
       "active, then do `task` — so after calling this, wait for its confirmation DM (use `read`).",
     inputSchema: z.object({
-      tool: z.enum(["pi", "claude"]).describe("Which agent CLI to launch: \"pi\" or \"claude\""),
+      tool: z.enum(["pi", "claude", "codex"]).describe("Which agent CLI to launch: \"pi\", \"claude\" or \"codex\""),
       name: z.string().describe("Memorable handle the new agent will claim (e.g. \"test-verifier\"); how you'll address it on the bridge"),
       task: z.string().describe("What the new agent should do, in plain language"),
       cwd: z.string().optional().describe("Directory to start the agent in, on the target machine (\"~\" allowed). Default: this agent's directory locally, home on a remote host"),
       host: z.string().optional().describe("Rex host label (from `rex hosts`) to start the agent on another machine. Default: this machine"),
+      model: z.string().optional().describe("Model to run. Default: claude-opus-5-5 (claude), openai-codex/auto (pi), gpt-6.2-sol (codex)"),
+      thinking: z.string().optional().describe("Thinking level. claude: low|medium|high|xhigh|max; pi: off|minimal|low|medium|high|xhigh|max; codex: low|medium|high|xhigh|max|ultra. Default: the CLI's own"),
     }),
   },
-  async ({ tool, name, task, cwd, host }) => {
-    const cmd = buildAgentCommand({ tool, name, task, requester: agentId, requesterDisplay: displayName, cwd, host });
+  async ({ tool, name, task, cwd, host, model, thinking }) => {
+    let cmd;
+    try {
+      cmd = buildAgentCommand({ tool, name, task, requester: agentId, requesterDisplay: displayName, cwd, host, model, thinking });
+    } catch (err) {
+      return { content: [{ type: "text" as const, text: `❌ ${(err as Error).message}` }], isError: true };
+    }
     const result = spawnAgentTab(cmd);
     const text = result.spawned
       ? `✅ Spawned ${tool} agent "${name}" — ${result.detail}. It will set_name "${name}" and DM you ` +

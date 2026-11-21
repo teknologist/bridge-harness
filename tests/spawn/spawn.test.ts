@@ -18,7 +18,7 @@ const cap = (backend: SpawnCapability["backend"], canSpawnTab: boolean): SpawnCa
 describe("buildAgentCommand launcher", () => {
   it("prefixes the prompt with a custom launcher (dashboard runs pi via pi-profile)", () => {
     const c = buildAgentCommand({ tool: "pi", name: "v", task: "t", requester: "r", launcher: ["pi-profile", "nats"] });
-    expect(c.argv).toEqual(["pi-profile", "nats", c.prompt]);
+    expect(c.argv).toEqual(["pi-profile", "nats", "--model", "openai-codex/auto", c.prompt]);
     expect(c.shell.startsWith("pi-profile 'nats' '")).toBe(true);
   });
 });
@@ -28,7 +28,7 @@ describe("buildAgentCommand cwd", () => {
   it("wraps argv in sh -c cd, keeping ~ unquoted and the rest quoted", () => {
     const c = buildAgentCommand({ tool: "pi", name: "v", task: "t", requester: "r", cwd: "~/my dir" });
     expect(c.argv.slice(0, 3)).toEqual(["sh", "-c", `cd ~/'my dir' && exec "$@"`]);
-    expect(c.argv.slice(4)).toEqual(["pi", c.prompt]);
+    expect(c.argv.slice(4)).toEqual(["pi", "--model", "openai-codex/auto", c.prompt]);
     expect(c.shell.startsWith("cd ~/'my dir' && pi '")).toBe(true);
   });
 });

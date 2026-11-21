@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { generateAgentId, getDisplayName } from "../../src/shared/config.js";
+import { detectMcpHost, generateAgentId, getDisplayName } from "../../src/shared/config.js";
 
 describe("generateAgentId", () => {
   const originalEnv = process.env;
@@ -149,5 +149,20 @@ describe("who_is_in filtering", () => {
     const agents: { agentId: string; rooms: Set<string>; lastSeen: number }[] = [];
     const inRoom = agents.filter(a => a.rooms.has("nonexistent"));
     expect(inRoom).toHaveLength(0);
+  });
+});
+
+// Codex and Claude Code launch the same MCP server; the roster colours and labels each
+// agent by its ID prefix, so a Codex session must not register as claude-code-….
+describe("detectMcpHost", () => {
+  it("names a Codex-launched server codex", () => {
+    expect(detectMcpHost("/Users/me/.codex/packages/standalone/current/bin/codex")).toEqual({ base: "codex", name: "Codex" });
+    expect(detectMcpHost("codex")).toEqual({ base: "codex", name: "Codex" });
+  });
+
+  it("falls back to Claude Code for anything else, including an unknown parent", () => {
+    expect(detectMcpHost("claude")).toEqual({ base: "claude-code", name: "Claude Code" });
+    expect(detectMcpHost("node")).toEqual({ base: "claude-code", name: "Claude Code" });
+    expect(detectMcpHost("")).toEqual({ base: "claude-code", name: "Claude Code" });
   });
 });
