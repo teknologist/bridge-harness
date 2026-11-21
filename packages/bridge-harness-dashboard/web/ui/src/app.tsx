@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import {
   History as HistoryIcon,
+  ChevronRight,
   LogOut,
   MessagesSquare,
   MessageCircleQuestion,
@@ -803,6 +804,8 @@ function PanePrompt(props: { agentId: string; waiting: boolean }) {
       <button type="button" class="prompt__head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <MessageCircleQuestion size={16} aria-hidden="true" />
         {props.waiting ? 'Waiting on you: answer in its terminal' : 'Terminal'}
+        <span class="prompt__hint">{open ? 'hide' : 'show and answer'}</span>
+        <ChevronRight class={`prompt__chev ${open ? 'prompt__chev--open' : ''}`} size={16} aria-hidden="true" />
       </button>
       {open ? (
         <>

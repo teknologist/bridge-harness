@@ -1545,6 +1545,24 @@ button {
   text-transform: uppercase;
   cursor: pointer;
 }
+.prompt__head {
+  width: 100%;
+}
+.prompt__head:hover {
+  color: var(--text);
+}
+.prompt__hint {
+  margin-left: auto;
+  color: var(--text-3, var(--text-2));
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+.prompt__chev {
+  transition: transform 0.15s;
+}
+.prompt__chev--open {
+  transform: rotate(90deg);
+}
 .prompt--waiting .prompt__head {
   color: var(--amber);
 }

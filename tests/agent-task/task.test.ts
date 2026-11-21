@@ -95,4 +95,17 @@ describe("hooks/bridge-task.js", () => {
   it("writes nothing when the user opted out", () => {
     expect(existsSync(run({ BRIDGE_SHARE_TASK: "0" }, "Fix the rounding bug"))).toBe(false);
   });
+  // A resumed session must show its transcript before the first prompt, without
+  // looking busy: SessionStart records the path but not the activity.
+  it("on SessionStart records the transcript path and leaves activity alone", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "bt-"));
+    execFileSync("node", [hook], {
+      input: JSON.stringify({ hook_event_name: "SessionStart", source: "resume", transcript_path: "/x/s.jsonl" }),
+      env: { ...process.env, TMPDIR: tmp, BRIDGE_AGENT_ID: "claude-code-test" },
+    });
+    const dir = join(tmp, "bridge-harness");
+    expect(readFileSync(join(dir, "transcript-claude-code-test.txt"), "utf8")).toBe("/x/s.jsonl");
+    expect(existsSync(join(dir, "activity-claude-code-test.txt"))).toBe(false);
+    expect(existsSync(join(dir, "task-claude-code-test.txt"))).toBe(false);
+  });
 });

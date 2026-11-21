@@ -5,19 +5,18 @@
 // so process.ppid gives the same agentId in both. The file never leaves this machine;
 // only the summarised label goes on the bus. BRIDGE_SHARE_TASK=0 turns it all off.
 // It also records the session transcript path (BRIDGE_SHARE_TRANSCRIPT=0 turns that off).
+// It also runs on SessionStart, so a resumed session shows its transcript before the
+// first prompt; that run only records the path and leaves the activity alone.
 import { hookAgentId } from "./claude-pid.js";
 import { writeActivity } from "./activity.js";
 import { mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-writeActivity(hookAgentId(), "working");
-
 const off = (name) => ["0", "false", "no", "off"].includes((process.env[name] ?? "").trim().toLowerCase());
 const shareTask = !off("BRIDGE_SHARE_TASK");
 // The MCP server tails this session's transcript file to stream the live conversation.
 const shareTranscript = !off("BRIDGE_SHARE_TRANSCRIPT");
-if (!shareTask && !shareTranscript) process.exit(0);
 
 function writePrivate(name, text) {
   const dir = join(tmpdir(), "bridge-harness");
@@ -31,12 +30,20 @@ let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (c) => (input += c));
 process.stdin.on("end", () => {
+  let event = {};
   try {
-    const { prompt, transcript_path: transcriptPath } = JSON.parse(input);
+    event = JSON.parse(input) ?? {};
+  } catch {
+    // Unreadable input: still count it as a prompt below.
+  }
+  const sessionStart = event.hook_event_name === "SessionStart";
+  if (!sessionStart) writeActivity(hookAgentId(), "working");
+  try {
+    const { prompt, transcript_path: transcriptPath } = event;
     if (shareTranscript && typeof transcriptPath === "string" && transcriptPath) {
       writePrivate("transcript", transcriptPath);
     }
-    if (shareTask && typeof prompt === "string" && prompt.trim()) {
+    if (!sessionStart && shareTask && typeof prompt === "string" && prompt.trim()) {
       writePrivate("task", prompt.slice(0, 2000));
     }
   } catch {

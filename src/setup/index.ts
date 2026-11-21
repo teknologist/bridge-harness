@@ -230,6 +230,26 @@ function setupTaskHook(): boolean {
   return true;
 }
 
+/** SessionStart hook so a started or resumed session shares its transcript before the first prompt. */
+function setupTranscriptHook(): boolean {
+  const hookPath = join(dirname(getHookScriptPath()), "bridge-task.js");
+  const settings = readJson(SETTINGS_PATH) as {
+    hooks?: {
+      SessionStart?: Array<{ matcher?: string; hooks: Array<Record<string, unknown>> }>;
+    };
+  };
+  settings.hooks = settings.hooks ?? {};
+  const groups = (settings.hooks.SessionStart = settings.hooks.SessionStart ?? []);
+  if (groups.some((g) => g.hooks?.some((h) => (h.command as string | undefined)?.includes("bridge-task")))) {
+    warn("transcript hook already configured — skipping");
+    return false;
+  }
+  groups.push({ hooks: [{ type: "command", command: `node ${hookPath}` }] });
+  writeJson(SETTINGS_PATH, settings);
+  success("transcript hook configured in ~/.claude/settings.json (BRIDGE_SHARE_TRANSCRIPT=0 to opt out)");
+  return true;
+}
+
 /** Hooks that flag the agent as waiting on the user (hooks/bridge-waiting.js). */
 export const WAITING_HOOKS: Array<{ event: string; matcher: string }> = [
   { event: "Notification", matcher: "permission_prompt" },
@@ -310,6 +330,7 @@ async function main() {
   setupMcp();
   setupHook();
   setupTaskHook();
+  setupTranscriptHook();
   setupWaitingHook();
   setupSkill();
 
