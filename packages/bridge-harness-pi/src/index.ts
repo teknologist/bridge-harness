@@ -269,7 +269,7 @@ interface InboxMessage {
 // Duplicated here on purpose: this package ships standalone and must not import from the
 // repo's src/. Same reason getProject/generateAgentId are duplicated above.
 
-type SpawnBackend = "cmux" | "tmux" | "zellij" | "emulator";
+type SpawnBackend = "cmux" | "tmux" | "zellij" | "rex" | "emulator";
 
 interface SpawnCapability {
   backend: SpawnBackend;
@@ -291,6 +291,7 @@ function probeSpawnCapability(env: NodeJS.ProcessEnv = process.env): SpawnCapabi
   return { backend: "emulator", canSpawnTab: false, detail: `no pane controller (emulator: ${emu})` };
 }
 
+  if (env.REX_SESSION || env.TERM_PROGRAM === "rex") return { backend: "rex", canSpawnTab: true, detail: "rex via window new" };
 // The startup prompt MUST be a single line — it gets typed into a terminal, and a newline
 // would fire Enter mid-command.
 function buildStartupPrompt(name: string, task: string, requester: string, requesterDisplay?: string): string {
@@ -352,6 +353,12 @@ function spawnAgentTab(cmd: AgentCommand, env: NodeJS.ProcessEnv = process.env):
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return manual(`could not spawn a tab (${msg}) — run this command yourself`);
+    if (cap.backend === "rex") {
+      const bin = env.REX_BIN_DIR ? `${env.REX_BIN_DIR}/rex` : "rex";
+      const session = env.REX_SESSION ? ["-s", env.REX_SESSION] : [];
+      run(bin, ["window", "new", ...session, cmd.label, "-c", process.cwd(), "--", ...cmd.argv]);
+      return { spawned: true, backend: "rex", detail: `opened rex tab "${cmd.label}"` };
+    }
   }
 }
 

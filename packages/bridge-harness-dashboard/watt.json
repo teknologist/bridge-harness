@@ -1,6 +1,6 @@
 {
   "$schema": "https://schemas.platformatic.dev/wattpm/3.79.0.json",
-  "server": { "hostname": "{BRIDGE_DASHBOARD_HOST}", "port": "{BRIDGE_DASHBOARD_PORT}" },
+  "server": { "hostname": "{BRIDGE_DASHBOARD_HOST}", "port": "{PORT}" },
   "logger": { "level": "info" },
   "autoload": { "path": "web" },
   "entrypoint": "gateway"

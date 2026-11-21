@@ -18,6 +18,16 @@ export type Runner = (file: string, args: string[]) => string;
 const defaultRunner: Runner = (file, args) =>
   execFileSync(file, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
 
+// Rex sets REX_BIN_DIR in its terminals; prefer it so a non-login PATH still finds the CLI.
+export function rexBin(env: NodeJS.ProcessEnv): string {
+  return env.REX_BIN_DIR ? `${env.REX_BIN_DIR}/rex` : "rex";
+}
+
+export function rexWindowArgs(cmd: AgentCommand, env: NodeJS.ProcessEnv, cwd: string = process.cwd()): string[] {
+  const session = env.REX_SESSION ? ["-s", env.REX_SESSION] : [];
+  return ["window", "new", ...session, cmd.label, "-c", cwd, "--", ...cmd.argv];
+}
+
 // Open a new tab/pane running `cmd`, using whatever the current terminal supports.
 // Always returns a result — on any failure or an unsupported host it degrades to the
 // manual command instead of throwing, so the caller can always tell the user what to do.
@@ -59,6 +69,11 @@ export function spawnAgentTab(
         // `zellij run` takes the argv directly after `--`, so no shell quoting is involved.
         run("zellij", ["run", "--name", cmd.label, "--", ...cmd.argv]);
         return { spawned: true, backend: "zellij", detail: `opened zellij pane "${cmd.label}"` };
+      }
+      case "rex": {
+        // `rex window new` takes the argv after `--` (no shell quoting) and opens a tab.
+        run(rexBin(env), rexWindowArgs(cmd, env));
+        return { spawned: true, backend: "rex", detail: `opened rex tab "${cmd.label}"` };
       }
       default:
         return manual(`${cap.detail} — run this command yourself`);

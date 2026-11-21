@@ -3,9 +3,9 @@ import { fileURLToPath } from "node:url";
 // Where a new agent tab/pane can be opened, and whether WE can do it programmatically.
 // This is a CAPABILITY probe, not an identity probe: knowing "we are in ghostty" is
 // useless — the caller needs to know "can I spawn a tab here, and how".
-export type SpawnBackend = "cmux" | "tmux" | "zellij" | "emulator";
+export type SpawnBackend = "cmux" | "tmux" | "zellij" | "rex" | "emulator";
 
-export type SpawnMethod = "cmux-cli" | "tmux-cli" | "zellij-cli" | "manual";
+export type SpawnMethod = "cmux-cli" | "tmux-cli" | "zellij-cli" | "rex-cli" | "manual";
 
 export interface SpawnCapability {
   backend: SpawnBackend;
@@ -54,7 +54,19 @@ export function probeSpawnCapability(env: NodeJS.ProcessEnv = process.env): Spaw
     };
   }
 
-  // 4. Pure emulator (standalone ghostty, iTerm, Terminal.app, ...) — no programmatic
+  // 4. Rex — terminal with its own session/tab CLI. Checked after tmux/zellij: a
+  //    multiplexer running INSIDE Rex is the more specific layer. REX_SESSION scopes the
+  //    new tab to the caller's session; TERM_PROGRAM=rex alone still works (server picks).
+  if (env.REX_SESSION || env.TERM_PROGRAM === "rex") {
+    return {
+      backend: "rex",
+      canSpawnTab: true,
+      method: "rex-cli",
+      detail: `rex via \`rex window new\`${env.REX_SESSION ? ` (session ${env.REX_SESSION})` : ""}`,
+    };
+  }
+
+  // 5. Pure emulator (standalone ghostty, iTerm, Terminal.app, ...) — no programmatic
   //    pane API. Degrade gracefully: the caller prints the full command for the human.
   const emu = env.TERM_PROGRAM ?? env.TERM ?? "unknown";
   return {

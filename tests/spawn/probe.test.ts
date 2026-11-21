@@ -35,6 +35,17 @@ describe("probeSpawnCapability", () => {
     expect(cap.method).toBe("zellij-cli");
   });
 
+  it("detects rex (the dashboard case: TERM_PROGRAM=rex used to fall to manual)", () => {
+    const cap = probeSpawnCapability({ TERM_PROGRAM: "rex", REX_SESSION: "session:1" });
+    expect(cap.backend).toBe("rex");
+    expect(cap.canSpawnTab).toBe(true);
+    expect(cap.method).toBe("rex-cli");
+  });
+
+  it("prefers tmux running inside rex", () => {
+    expect(probeSpawnCapability({ TMUX: "/x", REX_SESSION: "session:1" }).backend).toBe("tmux");
+  });
+
   it("falls back to manual for a pure emulator (ghostty standalone)", () => {
     const cap = probeSpawnCapability({ TERM_PROGRAM: "ghostty" });
     expect(cap.backend).toBe("emulator");

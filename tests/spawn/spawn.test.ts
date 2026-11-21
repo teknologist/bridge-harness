@@ -32,6 +32,14 @@ describe("spawnAgentTab", () => {
     expect(res.manualCommand).toBe(cmd.shell);
   });
 
+  it("rex: opens a named tab in the caller's session via the bundled CLI, argv after --", () => {
+    const { run, calls } = recorder();
+    const env = { REX_BIN_DIR: "/rex/bin", REX_SESSION: "session:abc" };
+    const res = spawnAgentTab(cmd, cap("rex", true), env, run);
+    expect(res.spawned).toBe(true);
+    expect(calls[0]).toEqual({ file: "/rex/bin/rex", args: ["window", "new", "-s", "session:abc", "verifier", "-c", process.cwd(), "--", ...cmd.argv] });
+  });
+
   it("tmux: opens a named window in one shot", () => {
     const { run, calls } = recorder();
     const res = spawnAgentTab(cmd, cap("tmux", true), {}, run);
