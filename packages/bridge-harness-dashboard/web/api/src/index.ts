@@ -5,12 +5,13 @@ import fastify from 'fastify';
 import { buildAgentCommand } from '../../../../../dist/spawn/command.js';
 import { rexBin, spawnAgentTab } from '../../../../../dist/spawn/spawn.js';
 import { execFileSync } from 'node:child_process';
-import type { HistoryResponse, HostsResponse, MessagesResponse, PaneInput, PaneScreen, SelfRequest, SendRequest, ServerEvent, SpawnRequest, SpawnResponse, TranscriptResponse } from '../../../shared/contract.ts';
+import type { DirsResponse, HistoryResponse, HostsResponse, MessagesResponse, PaneInput, PaneScreen, SelfRequest, SendRequest, ServerEvent, SpawnRequest, SpawnResponse, TranscriptResponse } from '../../../shared/contract.ts';
 import { PANE_KEYS } from '../../../shared/contract.ts';
 import { createFleet, subjectToken } from './fleet.ts';
 import { openHistory } from './history.ts';
 import { openMessageStore } from './messages.ts';
 import { createPanes, rexRunner } from './pane.ts';
+import { listDirs } from './dirs.ts';
 
 const SESSION = 'bh_session';
 const cookieAttributes = 'Path=/api; HttpOnly; SameSite=Strict';
@@ -113,7 +114,15 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
   };
   app.get('/hosts', async (): Promise<HostsResponse> => ({ hosts: rexHosts() }));
   // The agent's terminal, to read and answer a prompt it is blocked on (see pane.ts).
-  const panes = createPanes(rexRunner(rexBin(process.env)), rexHosts);
+  const rexRun = rexRunner(rexBin(process.env));
+  const panes = createPanes(rexRun, rexHosts);
+  // Folders on this machine or a Rex host, for the spawn dialog's directory picker.
+  app.get<{ Querystring: { host?: string; path?: string; prefix?: string } }>('/dirs', {
+    schema: { querystring: object({ host: string(255, 0, '^[^\\p{Cc}]*$'), path: string(1_024, 0, '^[^\\p{Cc}]*$'), prefix: string(255, 0, '^[^\\p{Cc}/]*$') }) },
+  }, async ({ query }, reply): Promise<DirsResponse | void> => {
+    if (query.host && !rexHosts().includes(query.host)) return reply.code(400).send({ error: `unknown rex host: ${query.host}` });
+    try { return await listDirs(rexRun, query.host || undefined, query.path ?? '~', query.prefix); } catch (err) { return reply.code(502).send({ error: (err as Error).message }); }
+  });
   app.get<{ Params: { agentId: string } }>('/pane/:agentId', async ({ params }, reply) => {
     const block = fleet.pane(params.agentId);
     if (!block) return reply.code(404).send({ error: 'this agent has no Rex pane' });
@@ -138,12 +147,15 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
     return { ok: true };
   });
   app.post<{ Body: SpawnRequest }>('/spawn', body({
-    tool: { enum: ['pi', 'claude'] }, name: string(64, 1, '^[a-zA-Z0-9_-]+$'), task: string(4_096, 1, '^[^#\\p{Cc}\\p{Zl}\\p{Zp}]+$'),
+    tool: { enum: ['pi', 'claude', 'codex'] }, name: string(64, 1, '^[a-zA-Z0-9_-]+$'), task: string(4_096, 1, '^[^#\\p{Cc}\\p{Zl}\\p{Zp}]+$'),
     cwd: string(1_024, 0, '^[^\\p{Cc}]*$'), host: string(255, 0, '^[^\\p{Cc}]*$'),
+    model: string(128, 0, '^[A-Za-z0-9._:/@\\[\\]-]*$'), thinking: string(16, 0, '^[a-z]*$'),
   }, ['tool', 'name', 'task']), async ({ body }, reply) => {
     if (body.host && !rexHosts().includes(body.host)) return reply.code(400).send({ error: `unknown rex host: ${body.host}` });
     const launcher = body.tool === 'pi' ? piLauncher : undefined;
-    const res: SpawnResponse = spawnAgentTab(buildAgentCommand({ ...body, requester: fleet.self.agentId, launcher }));
+    let cmd;
+    try { cmd = buildAgentCommand({ ...body, requester: fleet.self.agentId, launcher }); } catch (err) { return reply.code(400).send({ error: (err as Error).message }); }
+    const res: SpawnResponse = spawnAgentTab(cmd);
     return { spawned: res.spawned, detail: res.detail, manualCommand: res.manualCommand };
   });
   app.get('/events', (_request, reply) => {

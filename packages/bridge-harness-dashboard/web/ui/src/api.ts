@@ -4,6 +4,7 @@ import type {
   SelfRequest,
   SendResponse,
   ServerEvent,
+  DirsResponse,
   HostsResponse,
   PaneInput,
   PaneScreen,
@@ -59,6 +60,8 @@ export const api = {
     post<{ ok: true; project: string }>('/project', { project }),
   spawn: (req: SpawnRequest) => post<SpawnResponse>('/spawn', req),
   hosts: () => call<HostsResponse>('/hosts'),
+  dirs: (host: string, path: string, prefix: string) =>
+    call<DirsResponse>(`/dirs?${new URLSearchParams({ host, path, prefix })}`),
   pane: (agentId: string) => call<PaneScreen>(`/pane/${encodeURIComponent(agentId)}`),
   type: (agentId: string, input: PaneInput) =>
     post<{ ok: true }>(`/pane/${encodeURIComponent(agentId)}`, input),

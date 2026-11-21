@@ -153,16 +153,53 @@ export interface SelfRequest {
 // Switches which project's rooms the dashboard subscribes to (use_bridge). DMs and
 // the roster are global and unaffected.
 
-// ── POST /api/spawn  { tool, name, task, cwd?, host? } → SpawnResponse ───────
+// ── POST /api/spawn  { tool, name, task, cwd?, host?, model?, thinking? } → SpawnResponse ──
 // Spawns on the machine running the dashboard, or on a Rex host (`host`, one of
 // GET /api/hosts). `cwd` is the start directory on that machine (~ allowed).
 // The new agent DMs the dashboard.
 export interface SpawnRequest {
-  tool: 'pi' | 'claude';
+  tool: 'pi' | 'claude' | 'codex';
   name: string;
   task: string;
   cwd?: string;
   host?: string;
+  /** Model to run; default SPAWN_MODELS[tool]. */
+  model?: string;
+  /** One of SPAWN_THINKING[tool]; default: the CLI's own. */
+  thinking?: string;
+}
+// Mirrors src/spawn/command.ts DEFAULT_MODELS / THINKING_LEVELS (the API rejects others).
+export const SPAWN_MODELS: Record<SpawnRequest['tool'], string> = {
+  claude: 'claude-opus-5-5',
+  pi: 'openai-codex/auto',
+  codex: 'gpt-6.2-sol',
+};
+// Models the spawn dialog offers per agent; the default comes first.
+export const SPAWN_MODEL_CHOICES: Record<SpawnRequest['tool'], readonly string[]> = {
+  claude: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-2'],
+  pi: [
+    'openai-codex/auto', 'openai-codex/gpt-6.2-sol', 'openai-codex/gpt-6.2-astra', 'openai-codex/gpt-6.1-sol',
+    'openai-codex/gpt-6.1-terra', 'anthropic/claude-opus-5-5', 'anthropic/claude-sonnet-5-5',
+    'anthropic/claude-haiku-5-5', 'anthropic/claude-fable-5-2',
+  ],
+  codex: ['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6-astra'],
+};
+export const SPAWN_THINKING: Record<SpawnRequest['tool'], readonly string[]> = {
+  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
+  pi: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  codex: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+};
+// ── GET /api/dirs?host=&path=&prefix= → DirsResponse — directories to browse for `cwd` ──
+// `path` defaults to "~"; `prefix` filters names (hidden ones show only for a "." prefix).
+// 502 when the host cannot be asked (e.g. it has no open Rex session).
+export interface DirsResponse {
+  /** Absolute path listed. */
+  path: string;
+  /** Home directory on that machine, to show paths as ~/… */
+  home: string;
+  exists: boolean;
+  dirs: string[];
+  truncated: boolean;
 }
 // ── GET /api/hosts → HostsResponse — Rex hosts usable as spawn targets ────────
 export interface HostsResponse {

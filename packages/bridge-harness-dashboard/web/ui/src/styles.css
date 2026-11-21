@@ -1606,3 +1606,134 @@ button {
     animation: none;
   }
 }
+
+/* Spawn dialog: model + thinking side by side, and the directory browser. */
+.field-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+}
+.dirfield {
+  display: flex;
+  gap: 8px;
+}
+.dirfield input {
+  flex: 1;
+  min-width: 0;
+}
+.dirs {
+  margin-top: 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--housing-2);
+  max-height: 220px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.dirs__here {
+  position: sticky;
+  top: 0;
+  padding: 6px 10px;
+  color: var(--text-3);
+  background: var(--housing-2);
+  border-bottom: 1px solid var(--rule);
+  overflow-wrap: anywhere;
+}
+.dirs__item {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dirs__item:hover,
+.dirs__item:focus-visible {
+  background: var(--flap);
+  outline: none;
+}
+.dirs__note {
+  padding: 6px 10px;
+  color: var(--text-3);
+}
+.dirs__note--bad {
+  color: var(--danger);
+}
+@media (max-width: 480px) {
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Transcript pane: read-only by default, toggles into the live terminal. */
+.pane__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+}
+.pane__wait {
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--amber);
+  text-transform: none;
+}
+.pane__live + .pane__toggle,
+.pane__wait + .pane__toggle {
+  margin-left: 0;
+}
+.pane__toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: none;
+  color: var(--text-2);
+  font: 600 11px/1 var(--label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.pane__toggle:hover {
+  color: var(--text);
+  border-color: var(--text-3);
+}
+.pane__toggle[aria-pressed='true'] {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+.pane--waiting .pane__head {
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+.console {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px 12px;
+  background: #050506;
+}
+.console__screen {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  margin: 0 0 8px;
+  padding: 10px 6px;
+  background: none;
+  border-radius: 0;
+}
+.pane__wait {
+  margin-left: auto;
+}
+.pane__wait + .pane__live {
+  margin-left: 0;
+}

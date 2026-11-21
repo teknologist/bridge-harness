@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import {
   History as HistoryIcon,
-  ChevronRight,
   LogOut,
   MessagesSquare,
   MessageCircleQuestion,
@@ -11,7 +10,9 @@ import {
   Plus,
   Power,
   Rows3,
+  ScrollText,
   SendHorizontal,
+  SquareTerminal,
   X,
 } from 'lucide-preact';
 import type {
@@ -22,7 +23,12 @@ import type {
   ThreadSummary,
   TranscriptLine,
 } from '../../../shared/contract.ts';
-import { threadKey } from '../../../shared/contract.ts';
+import {
+  SPAWN_MODEL_CHOICES,
+  SPAWN_MODELS,
+  SPAWN_THINKING,
+  threadKey,
+} from '../../../shared/contract.ts';
 import { api } from './api.ts';
 import { KindMark } from './brand.tsx';
 import { Flap } from './flap.tsx';
@@ -169,11 +175,7 @@ function Shell({ board }: { board: Board }) {
   const agents = useMemo(() => Object.values(state.agents), [state.agents]);
   const projects = useMemo(
     () =>
-      [
-        ...new Set(
-          agents.map(repoOf).filter((p): p is string => !!p)
-        ),
-      ].sort(),
+      [...new Set(agents.map(repoOf).filter((p): p is string => !!p))].sort(),
     [agents]
   );
 
@@ -355,12 +357,23 @@ function rank(a: AgentView): number {
   return a.activity === 'working' ? 0 : 1;
 }
 
-type Phase = 'waiting' | 'takeoff' | 'flight' | 'landing' | 'taxi' | 'gate' | 'ontime' | 'delayed';
+type Phase =
+  | 'waiting'
+  | 'takeoff'
+  | 'flight'
+  | 'landing'
+  | 'taxi'
+  | 'gate'
+  | 'ontime'
+  | 'delayed';
 
 /** How long a take-off, landing or taxi stays on the board after the change. */
 const MANOEUVRE_MS = 20_000;
 
-const phases: Record<Phase, { label: string; tone: 'live' | 'stale' | 'muted' | 'mail' }> = {
+const phases: Record<
+  Phase,
+  { label: string; tone: 'live' | 'stale' | 'muted' | 'mail' }
+> = {
   waiting: { label: 'WAITING', tone: 'mail' }, // blocked on a prompt only the user can answer
   takeoff: { label: 'TAKE OFF', tone: 'live' },
   flight: { label: 'IN FLIGHT', tone: 'live' },
@@ -387,8 +400,13 @@ function phaseOf(a: AgentView, since: number | undefined, now: number): Phase {
 }
 
 /** Remembers when each agent's activity last changed, as seen by this browser. */
-function useActivityChanges(agents: AgentView[], now: number): Map<string, number> {
-  const seen = useRef(new Map<string, { activity: AgentView['activity']; at?: number }>());
+function useActivityChanges(
+  agents: AgentView[],
+  now: number
+): Map<string, number> {
+  const seen = useRef(
+    new Map<string, { activity: AgentView['activity']; at?: number }>()
+  );
   for (const a of agents) {
     const prev = seen.current.get(a.agentId);
     if (!prev) seen.current.set(a.agentId, { activity: a.activity });
@@ -445,7 +463,9 @@ const PlaneMark = (props: { pose: Pose; class: string; width: number }) => (
       <path class="plane__strip" d="M2 19h32" />
     ) : null}
     <g class="plane__fly">
-      <g transform={`translate(0 ${props.pose.dy}) rotate(${props.pose.rot} 18 11)`}>
+      <g
+        transform={`translate(0 ${props.pose.dy}) rotate(${props.pose.rot} 18 11)`}
+      >
         {PLANE_BODY}
         {props.pose.ground ? PLANE_GEAR : null}
       </g>
@@ -455,14 +475,22 @@ const PlaneMark = (props: { pose: Pose; class: string; width: number }) => (
 
 const PhaseIcon = (props: { phase: Phase }) => {
   if (props.phase === 'waiting')
-    return <MessageCircleQuestion class="phase phase--waiting" size={16} aria-hidden="true" />;
+    return (
+      <MessageCircleQuestion
+        class="phase phase--waiting"
+        size={16}
+        aria-hidden="true"
+      />
+    );
   const pose =
     props.phase === 'takeoff' || props.phase === 'landing'
       ? POSES[props.phase]
       : props.phase === 'flight' || props.phase === 'ontime'
         ? POSES.flight
         : POSES.ground;
-  return <PlaneMark pose={pose} class={`phase phase--${props.phase}`} width={40} />;
+  return (
+    <PlaneMark pose={pose} class={`phase phase--${props.phase}`} width={40} />
+  );
 };
 
 function repoOf(a: AgentView): string | undefined {
@@ -471,8 +499,12 @@ function repoOf(a: AgentView): string | undefined {
 
 /** Branch, plus the worktree folder when it is not just the repo checkout itself. */
 function whereOf(a: AgentView): string {
-  const tree = a.repo && a.project && a.project !== a.repo ? a.project : undefined;
-  return [a.branch, tree && tree !== a.branch?.replace(/\//g, '-') ? `in ${tree}` : undefined]
+  const tree =
+    a.repo && a.project && a.project !== a.repo ? a.project : undefined;
+  return [
+    a.branch,
+    tree && tree !== a.branch?.replace(/\//g, '-') ? `in ${tree}` : undefined,
+  ]
     .filter(Boolean)
     .join(' ');
 }
@@ -529,7 +561,9 @@ function AgentBoard(props: {
   const waiting = rows.filter((a) => rank(a) === -1).length;
   const working = rows.filter((a) => rank(a) === 0).length;
   const stale = rows.filter((a) => rank(a) === 2).length;
-  const idle = rows.filter((a) => rank(a) === 1 && a.activity === 'idle').length;
+  const idle = rows.filter(
+    (a) => rank(a) === 1 && a.activity === 'idle'
+  ).length;
   const unknown = rows.length - working - waiting - stale - idle; // agents without the signal yet
 
   if (props.agents.length === 0) {
@@ -551,7 +585,12 @@ function AgentBoard(props: {
           <PlaneTakeoff size={22} aria-hidden="true" />
           Departures
         </h2>
-        <Flap class="board__clock" cells={5} value={clock(now)} title="Local time" />
+        <Flap
+          class="board__clock"
+          cells={5}
+          value={clock(now)}
+          title="Local time"
+        />
         <p class="board__counts">
           {waiting > 0 && (
             <span class="board__waiting">
@@ -635,14 +674,23 @@ function AgentBoard(props: {
                   <Flap class="seen" still value={ago(a.lastSeen, now)} />
                 </td>
                 <td class="cell-status">
-                  {rank(a) === 0 ? <span class="boarding" aria-hidden="true" /> : null}
-                  {rank(a) === -1 ? <span class="boarding boarding--waiting" aria-hidden="true" /> : null}
+                  {rank(a) === 0 ? (
+                    <span class="boarding" aria-hidden="true" />
+                  ) : null}
+                  {rank(a) === -1 ? (
+                    <span
+                      class="boarding boarding--waiting"
+                      aria-hidden="true"
+                    />
+                  ) : null}
                   <PhaseIcon phase={phaseOf(a, changes.get(a.agentId), now)} />
                   <Flap
                     class="status"
                     cells={9}
                     tone={phases[phaseOf(a, changes.get(a.agentId), now)].tone}
-                    value={phases[phaseOf(a, changes.get(a.agentId), now)].label}
+                    value={
+                      phases[phaseOf(a, changes.get(a.agentId), now)].label
+                    }
                     pending={pending.has('liveness')}
                   />
                 </td>
@@ -713,8 +761,16 @@ function ThreadList(props: {
             >
               {t.ref.kind === 'dm' ? (
                 <KindMark
-                  kind={props.state.agents[t.ref.agentId]?.kind ?? kindFromId(t.ref.agentId)}
-                  title={kindLabel[props.state.agents[t.ref.agentId]?.kind ?? kindFromId(t.ref.agentId)]}
+                  kind={
+                    props.state.agents[t.ref.agentId]?.kind ??
+                    kindFromId(t.ref.agentId)
+                  }
+                  title={
+                    kindLabel[
+                      props.state.agents[t.ref.agentId]?.kind ??
+                        kindFromId(t.ref.agentId)
+                    ]
+                  }
                 />
               ) : (
                 <KindMark kind="room" title="Room" />
@@ -758,16 +814,15 @@ const PROMPT_KEYS: { key: PaneKey; label: string }[] = [
  * The agent's terminal, read through Rex, so a prompt it is blocked on can be
  * answered from here: keys go straight to the pane, text is typed then Enter.
  */
-function PanePrompt(props: { agentId: string; waiting: boolean }) {
+/**
+ * The agent's real terminal, read and typed into through Rex. It is the
+ * interactive face of the transcript pane, shown only while toggled on.
+ */
+function PaneTerminal(props: { agentId: string }) {
   const [screen, setScreen] = useState<string>();
   const [error, setError] = useState<string>();
   const [text, setText] = useState('');
-  const [open, setOpen] = useState(props.waiting);
   const pre = useRef<HTMLPreElement>(null);
-
-  useEffect(() => {
-    if (props.waiting) setOpen(true);
-  }, [props.waiting]);
 
   async function refresh() {
     try {
@@ -779,11 +834,10 @@ function PanePrompt(props: { agentId: string; waiting: boolean }) {
   }
 
   useEffect(() => {
-    if (!open) return;
     refresh();
     const timer = setInterval(refresh, 2000);
     return () => clearInterval(timer);
-  }, [open, props.agentId]);
+  }, [props.agentId]);
 
   useEffect(() => {
     if (pre.current) pre.current.scrollTop = pre.current.scrollHeight;
@@ -800,47 +854,39 @@ function PanePrompt(props: { agentId: string; waiting: boolean }) {
   }
 
   return (
-    <section class={`prompt ${props.waiting ? 'prompt--waiting' : ''}`} aria-label="Terminal">
-      <button type="button" class="prompt__head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <MessageCircleQuestion size={16} aria-hidden="true" />
-        {props.waiting ? 'Waiting on you: answer in its terminal' : 'Terminal'}
-        <span class="prompt__hint">{open ? 'hide' : 'show and answer'}</span>
-        <ChevronRight class={`prompt__chev ${open ? 'prompt__chev--open' : ''}`} size={16} aria-hidden="true" />
-      </button>
-      {open ? (
-        <>
-          <pre ref={pre} class="prompt__screen">{screen ?? 'Reading the terminal…'}</pre>
-          {error ? <p class="prompt__error">{error}</p> : null}
-          <div class="prompt__keys">
-            {PROMPT_KEYS.map((k) => (
-              <button type="button" class="btn btn--key" key={k.key} onClick={() => type({ keys: [k.key] })}>
-                {k.label}
-              </button>
-            ))}
-          </div>
-          <form
-            class="prompt__form field"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!text.trim()) return;
-              type({ text, keys: ['enter'] });
-              setText('');
-            }}
-          >
-            <input
-              class="input"
-              value={text}
-              onInput={(e) => setText(e.currentTarget.value)}
-              placeholder="Type an answer, sent with Enter"
-              aria-label="Answer"
-            />
-            <button type="submit" class="btn" disabled={!text.trim()}>
-              Send
-            </button>
-          </form>
-        </>
-      ) : null}
-    </section>
+    <div class='console'>
+      <pre ref={pre} class='prompt__screen console__screen' aria-label={`Terminal of ${props.agentId}`}>
+        {screen ?? 'Reading the terminal…'}
+      </pre>
+      {error ? <p class='prompt__error'>{error}</p> : null}
+      <div class='prompt__keys'>
+        {PROMPT_KEYS.map((k) => (
+          <button type='button' class='btn btn--key' key={k.key} onClick={() => type({ keys: [k.key] })}>
+            {k.label}
+          </button>
+        ))}
+      </div>
+      <form
+        class='prompt__form field'
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!text.trim()) return;
+          type({ text, keys: ['enter'] });
+          setText('');
+        }}
+      >
+        <input
+          class='input'
+          value={text}
+          onInput={(e) => setText(e.currentTarget.value)}
+          placeholder='Type into the terminal, sent with Enter'
+          aria-label='Type into the terminal'
+        />
+        <button type='submit' class='btn' disabled={!text.trim()}>
+          Send
+        </button>
+      </form>
+    </div>
   );
 }
 
@@ -863,6 +909,15 @@ function Drawer(props: {
   const list = useRef<HTMLOListElement>(null);
   const [confirming, setConfirming] = useState(false);
   const canShutDown = !!peer?.pane && peer.activity === 'idle';
+  const waiting = peer?.activity === 'waiting';
+  // Read-only transcript by default; the live terminal is one toggle away and
+  // opens by itself when the agent is waiting on an answer.
+  const [term, setTerm] = useState(waiting);
+  useEffect(() => setTerm(waiting), [key]);
+  useEffect(() => {
+    if (waiting) setTerm(true);
+  }, [waiting]);
+  const showTerm = term && !!peer?.pane;
 
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight });
@@ -927,9 +982,6 @@ function Drawer(props: {
           }}
         />
       ) : null}
-      {peerId && peer?.pane ? (
-        <PanePrompt agentId={peerId} waiting={peer.activity === 'waiting'} />
-      ) : null}
       {peerId ? (
         <Split
           messages={
@@ -954,17 +1006,35 @@ function Drawer(props: {
             </section>
           }
           transcript={
-            <section class="pane pane--term" aria-label="Transcript">
-              <h3 class="pane__head">
-                Transcript{' '}
-                <span class="pane__n">{state.transcripts[peerId]?.length ?? 0}</span>
-                {peer?.liveness === 'live' ? <span class="pane__live">live</span> : null}
-              </h3>
-              <Transcript
-                agentId={peerId}
-                lines={state.transcripts[peerId]}
-                onOpen={props.onTranscript}
-              />
+            <section
+              class={`pane pane--term ${waiting ? "pane--waiting" : ""}`}
+              aria-label={showTerm ? "Terminal" : "Transcript"}
+            >
+              <div class="pane__head">
+                <h3 class="pane__title">
+                  {showTerm ? "Terminal" : "Transcript"}
+                  {showTerm ? null : <span class="pane__n">{state.transcripts[peerId]?.length ?? 0}</span>}
+                </h3>
+                {waiting ? <span class="pane__wait">waiting on you</span> : null}
+                {peer?.liveness === "live" ? <span class="pane__live">live</span> : null}
+                {peer?.pane ? (
+                  <button
+                    type="button"
+                    class="pane__toggle"
+                    aria-pressed={showTerm}
+                    onClick={() => setTerm(!showTerm)}
+                    title={showTerm ? "Back to the read-only transcript" : "Open the live terminal to type into it"}
+                  >
+                    {showTerm ? <ScrollText size={14} aria-hidden="true" /> : <SquareTerminal size={14} aria-hidden="true" />}
+                    {showTerm ? "Transcript" : "Terminal"}
+                  </button>
+                ) : null}
+              </div>
+              {showTerm ? (
+                <PaneTerminal agentId={peerId} />
+              ) : (
+                <Transcript agentId={peerId} lines={state.transcripts[peerId]} onOpen={props.onTranscript} />
+              )}
             </section>
           }
         />
@@ -1074,9 +1144,11 @@ function Transcript(props: {
   const pinned = useRef(true);
 
   useEffect(() => {
-    props.onOpen(props.agentId).catch((e: unknown) =>
-      setError(e instanceof Error ? e.message : String(e))
-    );
+    props
+      .onOpen(props.agentId)
+      .catch((e: unknown) =>
+        setError(e instanceof Error ? e.message : String(e))
+      );
   }, [props.agentId]);
 
   // Follow the tail like a terminal, unless the reader scrolled up.
@@ -1098,21 +1170,28 @@ function Transcript(props: {
       }}
     >
       {error ? (
-        <p class="term__note term__note--err">Could not load the transcript: {error}</p>
+        <p class="term__note term__note--err">
+          Could not load the transcript: {error}
+        </p>
       ) : lines === undefined ? (
         <p class="term__note">Loading the transcript</p>
       ) : lines.length === 0 ? (
         <p class="term__note">
-          Nothing yet. Lines appear here as this agent talks. Agents started before
-          0.3.34, or with BRIDGE_SHARE_TRANSCRIPT=0, do not share theirs.
+          Nothing yet. Lines appear here as this agent talks. Agents started
+          before 0.3.34, or with BRIDGE_SHARE_TRANSCRIPT=0, do not share theirs.
         </p>
       ) : (
         <>
           {lines.map((l) => (
             <div class={`term__line term__line--${l.role}`}>
-              <span class="term__mark" aria-hidden="true">{l.role === 'user' ? '›' : '•'}</span>
+              <span class="term__mark" aria-hidden="true">
+                {l.role === 'user' ? '›' : '•'}
+              </span>
               <span class="term__text">{l.text}</span>
-              <time class="term__time" dateTime={new Date(l.timestamp).toISOString()}>
+              <time
+                class="term__time"
+                dateTime={new Date(l.timestamp).toISOString()}
+              >
                 {clock(l.timestamp)}
               </time>
             </div>
@@ -1311,9 +1390,17 @@ function HistoryBoard(props: {
                 <td class="num">{clock(e.timestamp)}</td>
                 <td>
                   {e.kind === 'join' || e.kind === 'back' ? (
-                    <PlaneMark pose={POSES.landing} class="phase phase--arrive" width={30} />
+                    <PlaneMark
+                      pose={POSES.landing}
+                      class="phase phase--arrive"
+                      width={30}
+                    />
                   ) : e.kind === 'leave' || e.kind === 'drop' ? (
-                    <PlaneMark pose={POSES.takeoff} class="phase phase--depart" width={30} />
+                    <PlaneMark
+                      pose={POSES.takeoff}
+                      class="phase phase--depart"
+                      width={30}
+                    />
                   ) : null}
                   <span
                     class={`flap tag flap--${historyTone[e.kind] ?? 'default'}`}
@@ -1323,8 +1410,14 @@ function HistoryBoard(props: {
                 </td>
                 <th scope="row" class="cell-agent">
                   <KindMark
-                    kind={props.agents[e.agentId]?.kind ?? kindFromId(e.agentId)}
-                    title={kindLabel[props.agents[e.agentId]?.kind ?? kindFromId(e.agentId)]}
+                    kind={
+                      props.agents[e.agentId]?.kind ?? kindFromId(e.agentId)
+                    }
+                    title={
+                      kindLabel[
+                        props.agents[e.agentId]?.kind ?? kindFromId(e.agentId)
+                      ]
+                    }
                   />
                   <span class="agent">
                     <span class="agent__id">{e.agentId}</span>
@@ -1383,16 +1476,156 @@ function Modal(props: {
   );
 }
 
+/** "~/x" form of an absolute path, given that machine's home. */
+function tilde(path: string, home: string): string {
+  if (home && (path === home || path.startsWith(`${home}/`)))
+    return `~${path.slice(home.length)}`;
+  return path;
+}
+
+/**
+ * Start directory: typed as a path, or picked by browsing that machine's folders.
+ * The text after the last "/" filters the folder list, so typing searches it.
+ */
+function DirField({
+  host,
+  value,
+  onChange,
+}: {
+  host: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState<{
+    path: string;
+    home: string;
+    exists: boolean;
+    dirs: string[];
+    truncated: boolean;
+  }>();
+  const [error, setError] = useState('');
+  const slash = value.lastIndexOf('/');
+  const base = slash < 0 ? '~' : value.slice(0, slash) || '/';
+  const leaf = slash < 0 ? value : value.slice(slash + 1);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    const t = setTimeout(() => {
+      api.dirs(host, base, leaf).then(
+        (r) => {
+          if (live) {
+            setList(r);
+            setError('');
+          }
+        },
+        (err) => {
+          if (live) {
+            setList(undefined);
+            setError(err instanceof Error ? err.message : String(err));
+          }
+        }
+      );
+    }, 150);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [open, host, base, leaf]);
+  const here = list ? tilde(list.path, list.home) : base;
+  const join = (name: string) => `${here === '/' ? '' : here}/${name}/`;
+  const up = here.includes('/')
+    ? here.slice(0, here.lastIndexOf('/')) || '/'
+    : '';
+  return (
+    <div class="field">
+      <span class="label">Directory</span>
+      <div class="dirfield">
+        <input
+          value={value}
+          onInput={(e) => onChange(e.currentTarget.value)}
+          onFocus={() => setOpen(true)}
+          placeholder={host ? '~ (home on that host)' : 'dashboard directory'}
+          aria-label="Directory"
+          spellcheck={false}
+          autocomplete="off"
+        />
+        <button
+          type="button"
+          class="btn"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+        >
+          {open ? 'Hide' : 'Browse'}
+        </button>
+      </div>
+      {open ? (
+        <div class="dirs" role="listbox" aria-label={`Folders in ${here}`}>
+          <div class="dirs__here">
+            {here}
+            {leaf ? <span class="muted"> · matching “{leaf}”</span> : null}
+          </div>
+          {error ? <div class="dirs__note dirs__note--bad">{error}</div> : null}
+          {list && !list.exists ? (
+            <div class="dirs__note">
+              This folder does not exist on {host || 'this machine'}.
+            </div>
+          ) : null}
+          {up ? (
+            <button
+              type="button"
+              class="dirs__item"
+              onClick={() => onChange(`${up}/`.replace('//', '/'))}
+            >
+              ..
+            </button>
+          ) : null}
+          {list?.dirs.map((d) => (
+            <button
+              type="button"
+              class="dirs__item"
+              role="option"
+              onClick={() => onChange(join(d))}
+            >
+              {d}/
+            </button>
+          ))}
+          {list && list.exists && !list.dirs.length ? (
+            <div class="dirs__note">
+              No folders{leaf ? ` starting with “${leaf}”` : ''}.
+            </div>
+          ) : null}
+          {list?.truncated ? (
+            <div class="dirs__note">More folders exist; type to narrow.</div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function SpawnDialog({ onClose }: { onClose: () => void }) {
-  const [tool, setTool] = useState<'pi' | 'claude'>('claude');
+  const [tool, setTool] = useState<'pi' | 'claude' | 'codex'>('claude');
   const [name, setName] = useState('');
   const [task, setTask] = useState('');
   const [cwd, setCwd] = useState('');
   const [host, setHost] = useState('');
   const [hosts, setHosts] = useState<string[]>([]);
+  const [model, setModel] = useState(SPAWN_MODELS.claude);
+  const [thinking, setThinking] = useState('');
   const [busy, setBusy] = useState(false);
+  // Thinking levels differ per CLI: drop a pick the new agent would reject.
+  // Models and thinking levels differ per CLI: start each agent on its default model
+  // and drop a thinking pick the new agent would reject.
   useEffect(() => {
-    api.hosts().then((r) => setHosts(r.hosts), () => setHosts([]));
+    setModel(SPAWN_MODELS[tool]);
+    if (thinking && !SPAWN_THINKING[tool].includes(thinking)) setThinking('');
+  }, [tool]);
+  useEffect(() => {
+    api.hosts().then(
+      (r) => setHosts(r.hosts),
+      () => setHosts([])
+    );
   }, []);
   const [result, setResult] = useState<{
     ok: boolean;
@@ -1411,6 +1644,8 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
         task: task.trim(),
         cwd: cwd.trim() || undefined,
         host: host || undefined,
+        model: model.trim() || undefined,
+        thinking: thinking || undefined,
       });
       setResult({
         ok: res.spawned,
@@ -1431,13 +1666,13 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
     <Modal title="Spawn an agent" onClose={onClose}>
       <form class="form" onSubmit={submit}>
         <p class="muted">
-          Opens a new terminal tab on the machine running the dashboard, or on
-          a Rex host. The agent registers on the bridge and DMs you when it
+          Opens a new terminal tab on the machine running the dashboard, or on a
+          Rex host. The agent registers on the bridge and DMs you when it
           starts.
         </p>
         <fieldset class="seg">
           <legend class="label">Agent</legend>
-          {(['claude', 'pi'] as const).map((t) => (
+          {(['claude', 'pi', 'codex'] as const).map((t) => (
             <label class={`seg__opt ${tool === t ? 'seg__opt--on' : ''}`}>
               <input
                 type="radio"
@@ -1447,7 +1682,7 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
                 onChange={() => setTool(t)}
               />
               <KindMark kind={t} title="" />
-              {t === 'claude' ? 'Claude Code' : 'Pi'}
+              {t === 'claude' ? 'Claude Code' : t === 'pi' ? 'Pi' : 'Codex'}
             </label>
           ))}
         </fieldset>
@@ -1471,14 +1706,6 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
             required
           />
         </label>
-        <label class="field">
-          <span class="label">Directory</span>
-          <input
-            value={cwd}
-            onInput={(e) => setCwd(e.currentTarget.value)}
-            placeholder={host ? '~ (home on that host)' : 'dashboard directory'}
-          />
-        </label>
         {hosts.length ? (
           <label class="field">
             <span class="label">Host</span>
@@ -1494,6 +1721,36 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
             </select>
           </label>
         ) : null}
+        <DirField host={host} value={cwd} onChange={setCwd} />
+        <div class="field-row">
+          <label class="field">
+            <span class="label">Model</span>
+            <select
+              class="select"
+              value={model}
+              onChange={(e) => setModel(e.currentTarget.value)}
+            >
+              {SPAWN_MODEL_CHOICES[tool].map((m) => (
+                <option value={m}>
+                  {m === SPAWN_MODELS[tool] ? `${m} (default)` : m}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Thinking</span>
+            <select
+              class="select"
+              value={thinking}
+              onChange={(e) => setThinking(e.currentTarget.value)}
+            >
+              <option value="">Default</option>
+              {SPAWN_THINKING[tool].map((t) => (
+                <option value={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+        </div>
         {result ? (
           <div
             class={result.ok ? 'ok' : result.command ? 'warn' : 'error'}
@@ -1507,7 +1764,9 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
         ) : null}
         <div class="form__actions">
           {!busy && (!name.trim() || !task.trim()) ? (
-            <span class="form__hint">Add a {!name.trim() ? "name" : "task"} to spawn</span>
+            <span class="form__hint">
+              Add a {!name.trim() ? 'name' : 'task'} to spawn
+            </span>
           ) : null}
           <button type="button" class="btn btn--ghost" onClick={onClose}>
             {result?.ok ? 'Done' : 'Cancel'}
