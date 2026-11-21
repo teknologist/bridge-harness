@@ -42,7 +42,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "nats": "^2.29.0"
@@ -54,5 +54,9 @@
     "@earendil-works/pi-coding-agent": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.5.2",
+    "@earendil-works/pi-tui": "^1.5.2"
   }
 }
