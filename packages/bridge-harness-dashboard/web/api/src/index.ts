@@ -27,7 +27,7 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
   const session = createHmac('sha256', expected).update('bridge-dashboard-session').digest('hex');
   const expectedSession = Buffer.from(session);
   const app = fastify({ logger: true, ajv: { customOptions: { coerceTypes: false, removeAdditional: false } } });
-  const dataDirectory = options.dataDirectory ?? process.env.BRIDGE_DASHBOARD_DATA ?? join(homedir(), '.bridge-harness', 'dashboard');
+  const dataDirectory = options.dataDirectory ?? process.env.BRIDGE_DASHBOARD_DATA ?? join(homedir(), '.bridge-harness');
   // Pi agents launch through this command (space-separated argv, prompt appended).
   const piLauncher = (process.env.BRIDGE_DASHBOARD_PI_CMD?.trim() || 'pi-profile nats').split(/\s+/);
   const history = await openHistory(dataDirectory);
