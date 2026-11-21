@@ -11,6 +11,9 @@ export interface RegistryEvent {
   // Real repository name and branch (see getRepoInfo); `project` may be a worktree folder.
   repo?: string;
   branch?: string;
+  // Root of the agent's checkout and its working directory (absolute paths on its host).
+  worktree?: string;
+  cwd?: string;
   room?: string;
   // Present on "here" responses: every room the responder is in.
   rooms?: string[];
@@ -30,10 +33,16 @@ export interface AgentPresence {
   host?: string;
   repo?: string;
   branch?: string;
+  worktree?: string;
+  cwd?: string;
   activity?: Activity;
   /** Rex block (terminal pane) the agent runs in, so a viewer can read and answer its prompts. */
   pane?: string;
   task?: string;
+  model?: string;
+  thinking?: string;
+  ctxTokens?: number;
+  ctxWindow?: number;
   rooms: Set<string>;
   // Memorable DM handles this agent also answers to (from set_name).
   aliases: Set<string>;

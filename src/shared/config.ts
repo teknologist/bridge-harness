@@ -23,12 +23,13 @@ export function getProject(): string {
  * Real repository name and current branch of the working directory. A linked
  * worktree's folder name (the `project` namespace) can be anything, e.g. the
  * branch name, so viewers group agents by `repo` instead. Both are absent
- * outside git; a detached HEAD reports the short commit.
+ * outside git; a detached HEAD reports the short commit. `cwd` is the agent's
+ * working directory and `worktree` the root of the checkout it sits in.
  */
-export function getRepoInfo(cwd = process.cwd()): { repo?: string; branch?: string } {
+export function getRepoInfo(cwd = process.cwd()): { repo?: string; branch?: string; worktree?: string; cwd: string } {
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  const info: { repo?: string; branch?: string } = {};
+  const info: { repo?: string; branch?: string; worktree?: string; cwd: string } = { cwd };
   try {
     // The common dir is shared by every worktree: <repo>/.git, or <repo>.git when bare.
     const common = git("rev-parse", "--path-format=absolute", "--git-common-dir");
@@ -36,6 +37,7 @@ export function getRepoInfo(cwd = process.cwd()): { repo?: string; branch?: stri
     if (name) info.repo = name;
     const branch = git("rev-parse", "--abbrev-ref", "HEAD");
     info.branch = branch === "HEAD" ? git("rev-parse", "--short", "HEAD") : branch;
+    info.worktree = git("rev-parse", "--show-toplevel") || undefined;
   } catch {
     // not a git repo, or git unavailable
   }

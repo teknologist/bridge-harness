@@ -206,18 +206,19 @@ function getHost(): string {
 
 // Real repository name and branch (mirror of src/shared/config.ts getRepoInfo). A worktree
 // folder (the `project` namespace) may be named anything, so viewers group by `repo`.
-function getRepoInfo(): { repo?: string; branch?: string } {
+function getRepoInfo(): { repo?: string; branch?: string; worktree?: string; cwd: string } {
   const { execFileSync } = require("node:child_process");
   const { basename } = require("node:path");
   const git = (...args: string[]): string =>
     execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  const info: { repo?: string; branch?: string } = {};
+  const info: { repo?: string; branch?: string; worktree?: string; cwd: string } = { cwd: process.cwd() };
   try {
     const common = git("rev-parse", "--path-format=absolute", "--git-common-dir");
     const name = basename(common) === ".git" ? basename(dirname(common)) : basename(common).replace(/\.git$/, "");
     if (name) info.repo = name;
     const branch = git("rev-parse", "--abbrev-ref", "HEAD");
     info.branch = branch === "HEAD" ? git("rev-parse", "--short", "HEAD") : branch;
+    info.worktree = git("rev-parse", "--show-toplevel") || undefined;
   } catch {
     // not a git repo, or git unavailable
   }
@@ -376,8 +377,9 @@ function spawnAgentTab(cmd: AgentCommand, env: NodeJS.ProcessEnv = process.env):
       const sessions = (JSON.parse(run(bin, ["-S", cmd.host, "session", "list", "--json"])).sessions ?? []) as { session_id: string; label?: string }[];
       const existing = sessions.find((s) => s.label === REMOTE_SESSION)?.session_id;
       run(bin, existing
-        ? ["-S", cmd.host, "window", "new", "-s", existing, cmd.label, "--keep-open", "--", ...cmd.argv]
-        : ["-S", cmd.host, "session", "new", REMOTE_SESSION, "--window", cmd.label, "--keep-open", "--", ...cmd.argv]);
+        // --interactive: agent CLIs are often on PATH only via ~/.zshrc (e.g. ~/.local/bin).
+        ? ["-S", cmd.host, "window", "new", "-s", existing, cmd.label, "--keep-open", "--interactive", "--", ...cmd.argv]
+        : ["-S", cmd.host, "session", "new", REMOTE_SESSION, "--window", cmd.label, "--keep-open", "--interactive", "--", ...cmd.argv]);
       return { spawned: true, backend: "rex", detail: `opened rex tab "${cmd.label}" in session ${REMOTE_SESSION} on ${cmd.host}` };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -452,10 +454,27 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     try { sessionName = pi.getSessionName(); } catch {}
     return pickTask({ explicit: explicitTask, sessionName, prompt: promptTask });
   }
+  // Latest context Pi handed a handler; it answers the model, thinking level and context fill.
+  let modelCtx: ExtensionContext | undefined;
+  function modelInfo() {
+    try {
+      const model = modelCtx?.model;
+      if (!model) return {};
+      const usage = modelCtx?.getContextUsage();
+      return {
+        model: model.id,
+        thinking: pi.getThinkingLevel(),
+        ctxTokens: usage?.tokens ?? undefined,
+        ctxWindow: usage?.contextWindow || model.contextWindow || undefined,
+      };
+    } catch {
+      return {};
+    }
+  }
   function presencePayload() {
     const task = currentTask();
     lastSentTask = task;
-    return { agent: agentId, status: "active", project, host, ...getRepoInfo(), activity, pane: process.env.REX_BLOCK || undefined, task };
+    return { agent: agentId, status: "active", project, host, ...getRepoInfo(), activity, pane: process.env.REX_BLOCK || undefined, task, ...modelInfo() };
   }
   // Working while a turn runs, idle after agent_end; published at once on change.
   let activity: "working" | "idle" = "idle";
@@ -778,7 +797,8 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   });
   pi.on("session_info_changed", () => { announceTaskIfChanged(); });
 
-  pi.on("session_start", async () => {
+  pi.on("session_start", async (_event, ctx) => {
+    modelCtx = ctx;
     try {
       nc = await connect(NATS_CONNECT_OPTIONS);
       lastConnectError = undefined;
@@ -841,7 +861,13 @@ export default function bridgeExtension(pi: ExtensionAPI) {
     );
   });
 
-  pi.on("agent_end", () => {
+  pi.on("model_select", (_event, ctx) => {
+    modelCtx = ctx;
+    if (nc) publish(sub.presence(), encode(presencePayload()));
+  });
+
+  pi.on("agent_end", (_event, ctx) => {
+    modelCtx = ctx;
     isProcessingTurn = false;
     setActivity("idle");
     // Safety net: deliver anything the agent didn't pull via `read` during its turn.

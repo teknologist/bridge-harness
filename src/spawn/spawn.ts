@@ -40,8 +40,10 @@ export function rexWindowArgs(cmd: AgentCommand, env: NodeJS.ProcessEnv, cwd: st
   if (cmd.host) {
     // A remote server with several sessions refuses an untargeted `window new` (ambiguous),
     // so remote agents go into one dedicated session: reuse it, or create it with this tab.
-    if (remoteSession) return ["-S", cmd.host, "window", "new", "-s", remoteSession, cmd.label, "--keep-open", "--", ...cmd.argv];
-    return ["-S", cmd.host, "session", "new", REMOTE_SESSION, "--window", cmd.label, "--keep-open", "--", ...cmd.argv];
+    // --interactive: agent CLIs are often put on PATH only by ~/.zshrc (e.g. ~/.local/bin on
+    // Linux), which a plain login environment misses ("command not found: claude").
+    if (remoteSession) return ["-S", cmd.host, "window", "new", "-s", remoteSession, cmd.label, "--keep-open", "--interactive", "--", ...cmd.argv];
+    return ["-S", cmd.host, "session", "new", REMOTE_SESSION, "--window", cmd.label, "--keep-open", "--interactive", "--", ...cmd.argv];
   }
   const session = env.REX_SESSION ? ["-s", env.REX_SESSION] : [];
   const dir = cmd.cwd ? [] : ["-c", cwd];

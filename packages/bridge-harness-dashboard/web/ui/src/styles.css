@@ -396,6 +396,9 @@ button {
   border-radius: 4px;
   background: var(--flap-hi);
 }
+.tab .count {
+  margin-left: 8px; /* the label and badge share one span, so the tab's gap misses them */
+}
 .count--mail {
   background: var(--amber);
   color: var(--amber-ink);
@@ -677,6 +680,13 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.agent__model {
+  font: 500 11px/1.3 var(--mono);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cell-project,
 .cell-host {
   color: var(--text-2);
@@ -685,11 +695,35 @@ button {
   color: var(--text-2);
 }
 .where__repo,
+.where__branch,
+.where__path,
 .where__tree {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.where__branch {
+  margin-top: 3px;
+  font: 500 11px/1.3 var(--mono);
+  color: var(--text-2);
+}
+.where__glyph {
+  flex: none;
+  margin-right: 0.4em;
+  vertical-align: -2px;
+  color: var(--amber);
+}
+/* Long paths lose their start, not the folder the agent is in. */
+.where__path {
+  margin-top: 2px;
+  direction: rtl;
+  text-align: left;
+  font: 500 11px/1.3 var(--mono);
+  color: var(--text-3);
+}
+.where__sub {
+  color: var(--text-2);
 }
 .where__tree {
   margin-top: 3px;
@@ -1031,21 +1065,28 @@ button {
   scrollbar-width: thin;
   scrollbar-color: #2a2c30 transparent;
 }
+/* Bubbles: the agent's own words on the left, what it was told on the right,
+   the same sides and amber tint as the Messages pane. */
+.term {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .term__line {
   display: grid;
   grid-template-columns: 1.4ch 1fr auto;
   column-gap: 1ch;
-}
-.term__line + .term__line {
-  margin-top: 6px;
+  align-self: flex-start;
+  max-width: 86%;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: #121316;
+  border-top: 1px solid #1d1f23;
 }
 .term__line--user {
-  margin: 10px -14px 0;
-  padding: 2px 14px;
-  background: #121316;
-}
-.term__line:first-child {
-  margin-top: 0;
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--amber) 12%, #121316);
+  border-top-color: color-mix(in srgb, var(--amber) 28%, #121316);
 }
 .term__mark {
   user-select: none;
@@ -1078,6 +1119,17 @@ button {
 }
 @media (prefers-reduced-motion: reduce) {
   .term__cursor { animation: none; opacity: 0.6; }
+}
+/* Status line under the transcript, like the one under the agent's own prompt. */
+.term__foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 14px;
+  background: #050506;
+  border-top: 1px solid #1d1f23;
+  font: 400 11px/1.4 var(--term);
+  color: #8e8c85;
 }
 .term__note {
   margin: 0;
@@ -1118,9 +1170,26 @@ button {
   margin-bottom: 4px;
   color: var(--text-3);
 }
+/* Sender and recipient wrap as whole names, never mid-ID, and a name too
+   long for the pane ends in an ellipsis instead of running under the time. */
 .msg__from {
-  font: 600 12px/1 var(--mono);
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.5em;
+  min-width: 0;
+  font: 600 12px/1.4 var(--mono);
   color: var(--text-2);
+}
+.msg__who,
+.msg__to {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.msg__head > time {
+  flex-shrink: 0;
+  line-height: 1.4;
 }
 .msg__body {
   margin: 0;
@@ -1173,9 +1242,13 @@ button {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
 }
 .filters .projects {
   padding: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ── dialogs ────────────────────────────────────────────────────────────── */
@@ -1363,6 +1436,18 @@ button {
   }
   .rows th:nth-child(1) {
     width: 30%;
+  }
+}
+
+/* The tabs move under the brand before the bar runs out of room. */
+@media (max-width: 960px) {
+  .topbar {
+    grid-template-columns: 1fr auto;
+    gap: 10px 12px;
+  }
+  .tabs {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }
 
@@ -1728,6 +1813,10 @@ button {
 }
 .console__screen {
   flex: 1;
+  color: #c8ccd2;
+  font-family: var(--console);
+  font-size: 10.5px;
+  line-height: 1.25;
   min-height: 0;
   max-height: none;
   margin: 0 0 8px;
@@ -1735,10 +1824,6 @@ button {
   background: none;
   border-radius: 0;
 }
-  color: #c8ccd2;
-  font-family: var(--console);
-  font-size: 10.5px;
-  line-height: 1.25;
 .pane__wait {
   margin-left: auto;
 }

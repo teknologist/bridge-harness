@@ -71,13 +71,13 @@ describe("spawnAgentTab", () => {
     const { run, calls } = sessions([{ session_id: "session:a", label: "other" }, { session_id: "session:b", label: "x" }]);
     const res = spawnAgentTab(remote, cap("tmux", true), { REX_SESSION: "session:local" }, run);
     expect(res.spawned).toBe(true);
-    expect(calls[1]).toEqual({ file: "rex", args: ["-S", "spark1", "session", "new", "bridge-agents", "--window", "r", "--keep-open", "--", ...remote.argv] });
+    expect(calls[1]).toEqual({ file: "rex", args: ["-S", "spark1", "session", "new", "bridge-agents", "--window", "r", "--keep-open", "--interactive", "--", ...remote.argv] });
   });
 
   it("rex host: reuses the existing bridge-agents session", () => {
     const { run, calls } = sessions([{ session_id: "session:a", label: "other" }, { session_id: "session:ba", label: "bridge-agents" }]);
     spawnAgentTab(remote, cap("rex", true), {}, run);
-    expect(calls[1].args).toEqual(["-S", "spark1", "window", "new", "-s", "session:ba", "r", "--keep-open", "--", ...remote.argv]);
+    expect(calls[1].args).toEqual(["-S", "spark1", "window", "new", "-s", "session:ba", "r", "--keep-open", "--interactive", "--", ...remote.argv]);
   });
 
   it("tmux: opens a named window in one shot", () => {

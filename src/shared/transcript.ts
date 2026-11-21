@@ -48,6 +48,41 @@ function textOf(content: unknown): string {
     .join("\n");
 }
 
+/** Model an agent last answered with, its thinking level, and how full its context is. */
+export interface ModelInfo {
+  model: string;
+  thinking?: string;
+  /** Tokens the last request sent (prompt + cache); absent when unknown. */
+  ctxTokens?: number;
+  /** Context window size; absent when the host does not say (Claude Code's JSONL does not). */
+  ctxWindow?: number;
+}
+
+/**
+ * Reads the model, effort and context size from one Claude Code session JSONL line.
+ * Only main-thread assistant replies count: a subagent's model is not the agent's.
+ */
+export function parseClaudeModelInfo(line: string): ModelInfo | null {
+  let entry: any;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (!entry || entry.type !== "assistant" || entry.isSidechain) return null;
+  const model = entry.message?.model;
+  if (typeof model !== "string" || !model || model.startsWith("<")) return null; // "<synthetic>"
+  const usage = entry.message?.usage;
+  const tokens = usage
+    ? (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)
+    : 0;
+  return {
+    model,
+    thinking: typeof entry.effort === "string" ? entry.effort : undefined,
+    ctxTokens: tokens > 0 ? tokens : undefined,
+  };
+}
+
 /** Parses one line of a Claude Code session JSONL into a transcript line, or null. */
 export function parseClaudeTranscriptLine(line: string, agentId: string): TranscriptLine | null {
   let entry: any;

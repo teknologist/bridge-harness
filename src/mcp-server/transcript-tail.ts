@@ -1,5 +1,5 @@
 import { open, readFile, stat } from "node:fs/promises";
-import { parseClaudeTranscriptLine, type TranscriptLine } from "../shared/transcript.js";
+import { parseClaudeModelInfo, parseClaudeTranscriptLine, type ModelInfo, type TranscriptLine } from "../shared/transcript.js";
 
 /** Conversation lines to replay when a transcript is first found (the dashboard dedupes by id). */
 export const BACKFILL_LINES = 100;
@@ -12,9 +12,15 @@ const READ_MAX_BYTES = 1024 * 1024;
 
 /**
  * Follows the session transcript whose path hooks/bridge-task.js writes to `pathFile`,
- * handing each new conversation line to `publish`. Call poll() on an interval.
+ * handing each new conversation line to `publish` and the latest model in use to `onModel`.
+ * Call poll() on an interval.
  */
-export function createTranscriptTail(pathFile: string, agentId: string, publish: (line: TranscriptLine) => void) {
+export function createTranscriptTail(
+  pathFile: string,
+  agentId: string,
+  publish: (line: TranscriptLine) => void,
+  onModel: (info: ModelInfo) => void = () => {},
+) {
   let path: string | undefined;
   let offset = 0;
   let rest = "";
@@ -32,11 +38,14 @@ export function createTranscriptTail(pathFile: string, agentId: string, publish:
       raws.pop(); // partial (or empty) last line: the forward read picks it up
       const lastNewline = buffer.subarray(0, bytesRead).lastIndexOf(10);
       const found: TranscriptLine[] = [];
+      let model: ModelInfo | null = null;
       for (const raw of raws) {
         const line = parseClaudeTranscriptLine(raw, agentId);
         if (line) found.push(line);
+        model = parseClaudeModelInfo(raw) ?? model;
       }
       for (const line of found.slice(-BACKFILL_LINES)) publish(line);
+      if (model) onModel(model);
       return lastNewline >= 0 ? start + lastNewline + 1 : start;
     } finally {
       await handle.close();
@@ -68,6 +77,8 @@ export function createTranscriptTail(pathFile: string, agentId: string, publish:
         for (const raw of lines) {
           const line = parseClaudeTranscriptLine(raw, agentId);
           if (line) publish(line);
+          const model = parseClaudeModelInfo(raw);
+          if (model) onModel(model);
         }
       } finally {
         await handle.close();

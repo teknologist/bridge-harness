@@ -17,10 +17,16 @@ export interface AgentView {
   project?: string; // bridge namespace = worktree folder name; may be a branch-like name
   repo?: string; // real repository name, shared by all its worktrees (older agents omit it)
   branch?: string;
+  worktree?: string; // root of the agent's checkout, absolute on its host
+  cwd?: string; // agent's working directory, absolute on its host
   activity?: 'working' | 'idle' | 'waiting'; // in a turn, between turns, or blocked on a prompt for the user; absent for older agents
   pane?: string; // Rex block id of the agent's terminal; lets the board read and answer its prompt
   host?: string;
   task?: string;
+  model?: string; // model the agent last answered with, e.g. claude-opus-5-5
+  thinking?: string; // effort / thinking level, e.g. medium
+  ctxTokens?: number; // tokens its last request sent
+  ctxWindow?: number; // context window, when the host reports it (Pi does, Claude Code does not)
   rooms: string[];
   aliases: string[];
   joinedAt: number; // ms epoch, first time the dashboard saw it

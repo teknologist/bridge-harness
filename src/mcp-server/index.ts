@@ -34,7 +34,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnAgentTab } from "../spawn/spawn.js";
 import { createTranscriptTail } from "./transcript-tail.js";
-import { shareTranscriptEnabled } from "../shared/transcript.js";
+import { shareTranscriptEnabled, type ModelInfo } from "../shared/transcript.js";
 
 
 interface InboxMessage {
@@ -73,9 +73,12 @@ function currentTask(): string | undefined {
   return pickTask({ explicit: explicitTask, prompt: promptTask });
 }
 
+// Model, effort and context fill, read from the session transcript (see transcript-tail.ts).
+let modelInfo: ModelInfo | undefined;
+
 function presencePayload() {
   lastSentTask = currentTask();
-  return { agent: agentId, status: "active", project, host, ...getRepoInfo(), activity, pane: process.env.REX_BLOCK || undefined, task: lastSentTask };
+  return { agent: agentId, status: "active", project, host, ...getRepoInfo(), activity, pane: process.env.REX_BLOCK || undefined, task: lastSentTask, ...modelInfo };
 }
 
 function announceTaskIfChanged() {
@@ -656,9 +659,17 @@ async function main() {
   setInterval(() => void pollActivityFile(), 1_000).unref?.();
   if (shareTranscriptEnabled()) {
     const pathFile = join(tmpdir(), "bridge-harness", `transcript-${agentId.replace(/[^\w.-]/g, "_")}.txt`);
-    const tail = createTranscriptTail(pathFile, agentId, (line) => {
-      nc.publish(subjects.transcript(agentId), encode(line));
-    });
+    const tail = createTranscriptTail(
+      pathFile,
+      agentId,
+      (line) => nc.publish(subjects.transcript(agentId), encode(line)),
+      (info) => {
+        const switched = info.model !== modelInfo?.model || info.thinking !== modelInfo?.thinking;
+        modelInfo = info;
+        // A model or effort switch shows at once; the context size rides the next heartbeat.
+        if (switched) nc.publish(subjects.presence(), encode(presencePayload()));
+      },
+    );
     setInterval(() => void tail.poll(), 1_000).unref?.();
   }
 

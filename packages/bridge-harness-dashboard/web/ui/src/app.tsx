@@ -14,6 +14,7 @@ import {
   SendHorizontal,
   SquareTerminal,
   X,
+  GitBranch,
 } from 'lucide-preact';
 import type {
   AgentView,
@@ -494,6 +495,28 @@ const PhaseIcon = (props: { phase: Phase }) => {
   );
 };
 
+/** "claude-opus-5-5" → "Opus 5.5"; other ids lose only a provider prefix. */
+function modelName(model: string): string {
+  const m = /^claude-([a-z]+)-(\d+)-(\d+)/.exec(model);
+  return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}.${m[3]}` : model.replace(/^.*\//, '');
+}
+
+/** Model and thinking level, e.g. "Opus 5.5 · medium". */
+function modelOf(a: AgentView): string | undefined {
+  return a.model ? [modelName(a.model), a.thinking].filter(Boolean).join(' · ') : undefined;
+}
+
+function tokens(n: number): string {
+  return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}k`;
+}
+
+/** Context fill, e.g. "119k / 1.0M · 12%", or just "119k" when the host gives no window. */
+function ctxOf(a: AgentView): string | undefined {
+  if (!a.ctxTokens) return undefined;
+  if (!a.ctxWindow) return tokens(a.ctxTokens);
+  return `${tokens(a.ctxTokens)} / ${tokens(a.ctxWindow)} · ${Math.round((a.ctxTokens / a.ctxWindow) * 100)}%`;
+}
+
 function repoOf(a: AgentView): string | undefined {
   return a.repo ?? a.project;
 }
@@ -508,6 +531,51 @@ function whereOf(a: AgentView): string {
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+/** Home folder as ~ on macOS and Linux hosts. */
+function homeless(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~');
+}
+
+/** Checkout root, then the working directory below it when the agent sits deeper. */
+function pathOf(a: AgentView): { root: string; sub?: string } | undefined {
+  if (!a.cwd && !a.worktree) return undefined;
+  const root = a.worktree ?? a.cwd!;
+  const sub =
+    a.worktree && a.cwd && a.cwd.startsWith(a.worktree + '/')
+      ? a.cwd.slice(a.worktree.length + 1)
+      : a.worktree && a.cwd && a.cwd !== a.worktree
+        ? a.cwd
+        : undefined;
+  return { root: homeless(root), sub: sub && homeless(sub) };
+}
+
+/** Branch with a branch icon, then checkout path and working directory. */
+function Where(props: { a: AgentView }) {
+  const { a } = props;
+  const path = pathOf(a);
+  const full = [a.worktree, a.cwd && a.cwd !== a.worktree ? `cwd ${a.cwd}` : undefined].filter(Boolean).join('\n');
+  return (
+    <>
+      {a.branch && (
+        <span class="where__branch">
+          <GitBranch class="where__glyph" size={12} strokeWidth={2.25} aria-hidden="true" />
+          {a.branch}
+        </span>
+      )}
+      {path ? (
+        <span class="where__path" title={full || undefined}>
+          <bdi>
+            {path.root}
+            {path.sub && <span class="where__sub">/{path.sub}</span>}
+          </bdi>
+        </span>
+      ) : (
+        whereOf(a) && !a.branch && <span class="where__tree">{whereOf(a)}</span>
+      )}
+    </>
+  );
 }
 
 function ProjectTabs(props: {
@@ -658,11 +726,12 @@ function AgentBoard(props: {
                       value={isSelf ? 'you' : a.displayName}
                       pending={pending.has('displayName')}
                     />
+                    {modelOf(a) ? <span class="agent__model">{modelOf(a)}</span> : null}
                   </span>
                 </th>
                 <td class="cell-project">
                   <span class="where__repo">{repoOf(a) ?? '·'}</span>
-                  {whereOf(a) && <span class="where__tree">{whereOf(a)}</span>}
+                  <Where a={a} />
                 </td>
                 <td class="cell-host col-host">{a.host ?? '·'}</td>
                 <td class="cell-task">
@@ -1036,6 +1105,12 @@ function Drawer(props: {
               ) : (
                 <Transcript agentId={peerId} lines={state.transcripts[peerId]} onOpen={props.onTranscript} />
               )}
+              {!showTerm && peer && (modelOf(peer) || ctxOf(peer)) ? (
+                <footer class="term__foot">
+                  {modelOf(peer) ? <span>{modelOf(peer)}</span> : null}
+                  {ctxOf(peer) ? <span title="Context the last request sent">ctx {ctxOf(peer)}</span> : null}
+                </footer>
+              ) : null}
             </section>
           }
         />
@@ -1209,8 +1284,8 @@ function Message({ m, mine }: { m: ChatMessage; mine: boolean }) {
     <li class={`msg ${mine ? 'msg--mine' : ''}`}>
       <div class="msg__head">
         <span class="msg__from">
-          {mine ? 'you' : m.from}
-          <span class="msg__to"> → {m.to.replace(/^agent:/, '')}</span>
+          <span class="msg__who">{mine ? 'you' : m.from}</span>
+          <span class="msg__to">→ {m.to.replace(/^agent:/, '')}</span>
         </span>
         <time class="num" dateTime={new Date(m.timestamp).toISOString()}>
           {clock(m.timestamp)}

@@ -8,12 +8,20 @@ export interface PresenceEvent {
   /** Real repository name and current branch; `project` may be a worktree folder name. */
   repo?: string;
   branch?: string;
+  /** Root of the agent's checkout and its working directory, on its host. */
+  worktree?: string;
+  cwd?: string;
   /** Whether the agent is in a turn right now; absent from agents that predate it. */
   activity?: Activity;
   /** Rex block id of the agent's terminal pane; absent outside Rex. */
   pane?: string;
   /** One-line summary of what the agent is doing; absent means none (clears a previous one). */
   task?: string;
+  /** Model, thinking level and context fill; absent from agents that predate them. */
+  model?: string;
+  thinking?: string;
+  ctxTokens?: number;
+  ctxWindow?: number;
 }
 
 /**
@@ -47,8 +55,16 @@ export function applyPresenceEvent(
     if (event.host) existing.host = event.host;
     if (event.repo) existing.repo = event.repo;
     if (event.branch) existing.branch = event.branch;
+    if (event.worktree) existing.worktree = event.worktree;
+    if (event.cwd) existing.cwd = event.cwd;
     if (event.activity) existing.activity = event.activity;
     if (event.pane) existing.pane = event.pane;
+    if (event.model) {
+      existing.model = event.model;
+      existing.thinking = event.thinking;
+      existing.ctxTokens = event.ctxTokens;
+      existing.ctxWindow = event.ctxWindow;
+    }
     existing.task = event.task;
     return true;
   }
@@ -62,9 +78,15 @@ export function applyPresenceEvent(
     host: event.host,
     repo: event.repo,
     branch: event.branch,
+    worktree: event.worktree,
+    cwd: event.cwd,
     activity: event.activity,
     pane: event.pane,
     task: event.task,
+    model: event.model,
+    thinking: event.thinking,
+    ctxTokens: event.ctxTokens,
+    ctxWindow: event.ctxWindow,
     rooms: new Set(),
     aliases: new Set(),
     joinedAt: now,
