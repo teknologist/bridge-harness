@@ -287,11 +287,11 @@ function probeSpawnCapability(env: NodeJS.ProcessEnv = process.env): SpawnCapabi
   }
   if (env.TMUX) return { backend: "tmux", canSpawnTab: true, detail: "tmux via new-window" };
   if (env.ZELLIJ) return { backend: "zellij", canSpawnTab: true, detail: "zellij via new-pane" };
+  if (env.REX_SESSION || env.TERM_PROGRAM === "rex") return { backend: "rex", canSpawnTab: true, detail: "rex via window new" };
   const emu = env.TERM_PROGRAM ?? env.TERM ?? "unknown";
   return { backend: "emulator", canSpawnTab: false, detail: `no pane controller (emulator: ${emu})` };
 }
 
-  if (env.REX_SESSION || env.TERM_PROGRAM === "rex") return { backend: "rex", canSpawnTab: true, detail: "rex via window new" };
 // The startup prompt MUST be a single line — it gets typed into a terminal, and a newline
 // would fire Enter mid-command.
 function buildStartupPrompt(name: string, task: string, requester: string, requesterDisplay?: string): string {
@@ -309,14 +309,30 @@ function shSingleQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-interface AgentCommand { argv: string[]; shell: string; prompt: string; label: string; }
+interface AgentCommand { argv: string[]; shell: string; prompt: string; label: string; cwd?: string; host?: string; }
 
-function buildAgentCommand(tool: "pi" | "claude", name: string, task: string, requester: string, requesterDisplay?: string): AgentCommand {
+// `cd` into dir. A leading ~ stays unquoted so the TARGET machine's shell expands it.
+function cdCommand(dir: string): string {
+  if (dir === "~") return "cd ~";
+  if (dir.startsWith("~/")) return `cd ~/${shSingleQuote(dir.slice(2))}`;
+  return `cd ${shSingleQuote(dir)}`;
+}
+
+function buildAgentCommand(tool: "pi" | "claude", name: string, task: string, requester: string, requesterDisplay?: string, cwd?: string, host?: string): AgentCommand {
   const prompt = buildStartupPrompt(name, task, requester, requesterDisplay);
   const argv = [tool, prompt];
   const shell = `${argv[0]} ${argv.slice(1).map(shSingleQuote).join(" ")}`;
-  return { argv, shell, prompt, label: name };
+  const dir = cwd?.trim() || undefined;
+  const target = host?.trim() || undefined;
+  if (!dir) return { argv, shell, prompt, label: name, host: target };
+  // sh wrapper so the cd (and ~) happens on the target; the prompt stays a separate arg.
+  const cd = cdCommand(dir);
+  return { argv: ["sh", "-c", `${cd} && exec "$@"`, "sh", ...argv], shell: `${cd} && ${shell}`, prompt, label: name, cwd: dir, host: target };
 }
+
+// Remote agents go into one dedicated Rex session on the host: an untargeted
+// `window new` is ambiguous when the host has several sessions.
+const REMOTE_SESSION = "bridge-agents";
 
 interface SpawnResult { spawned: boolean; backend: SpawnBackend; detail: string; manualCommand?: string; }
 
@@ -328,6 +344,22 @@ function spawnAgentTab(cmd: AgentCommand, env: NodeJS.ProcessEnv = process.env):
     execFileSync(file, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   const cap = probeSpawnCapability(env);
   const manual = (detail: string): SpawnResult => ({ spawned: false, backend: cap.backend, detail, manualCommand: cmd.shell });
+
+  // A remote host is reached through the Rex CLI whatever multiplexer we sit in locally.
+  if (cmd.host) {
+    const bin = env.REX_BIN_DIR ? `${env.REX_BIN_DIR}/rex` : "rex";
+    try {
+      const sessions = (JSON.parse(run(bin, ["-S", cmd.host, "session", "list", "--json"])).sessions ?? []) as { session_id: string; label?: string }[];
+      const existing = sessions.find((s) => s.label === REMOTE_SESSION)?.session_id;
+      run(bin, existing
+        ? ["-S", cmd.host, "window", "new", "-s", existing, cmd.label, "--keep-open", "--", ...cmd.argv]
+        : ["-S", cmd.host, "session", "new", REMOTE_SESSION, "--window", cmd.label, "--keep-open", "--", ...cmd.argv]);
+      return { spawned: true, backend: "rex", detail: `opened rex tab "${cmd.label}" in session ${REMOTE_SESSION} on ${cmd.host}` };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { spawned: false, backend: "rex", detail: `could not reach rex host ${cmd.host} (${msg}) — run this there yourself`, manualCommand: cmd.shell };
+    }
+  }
 
   if (!cap.canSpawnTab) return manual(`${cap.detail} — run this command in a new tab yourself`);
 
@@ -349,16 +381,17 @@ function spawnAgentTab(cmd: AgentCommand, env: NodeJS.ProcessEnv = process.env):
       run("zellij", ["run", "--name", cmd.label, "--", ...cmd.argv]);
       return { spawned: true, backend: "zellij", detail: `opened zellij pane "${cmd.label}"` };
     }
+    if (cap.backend === "rex") {
+      const bin = env.REX_BIN_DIR ? `${env.REX_BIN_DIR}/rex` : "rex";
+      const session = env.REX_SESSION ? ["-s", env.REX_SESSION] : [];
+      const dir = cmd.cwd ? [] : ["-c", process.cwd()];
+      run(bin, ["window", "new", ...session, cmd.label, ...dir, "--keep-open", "--", ...cmd.argv]);
+      return { spawned: true, backend: "rex", detail: `opened rex tab "${cmd.label}"` };
+    }
     return manual(`${cap.detail} — run this command yourself`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return manual(`could not spawn a tab (${msg}) — run this command yourself`);
-    if (cap.backend === "rex") {
-      const bin = env.REX_BIN_DIR ? `${env.REX_BIN_DIR}/rex` : "rex";
-      const session = env.REX_SESSION ? ["-s", env.REX_SESSION] : [];
-      run(bin, ["window", "new", ...session, cmd.label, "-c", process.cwd(), "--", ...cmd.argv]);
-      return { spawned: true, backend: "rex", detail: `opened rex tab "${cmd.label}"` };
-    }
   }
 }
 
@@ -878,12 +911,14 @@ export default function bridgeExtension(pi: ExtensionAPI) {
         name: { type: "string", description: "For set_name: a memorable, unique handle (e.g. \"auth-reviewer\"). For spawn_agent: the handle the NEW agent will claim and how you'll address it." },
         tool: { type: "string", enum: ["pi", "claude"], description: "For spawn_agent: which agent CLI to launch." },
         task: { type: "string", description: "For spawn_agent: what the new agent should do, in plain language. For set_status: what you are working on now, in a few words (max 40 chars)." },
+        cwd: { type: "string", description: "For spawn_agent (optional): directory to start the new agent in, on the target machine (\"~\" allowed)." },
+        host: { type: "string", description: "For spawn_agent (optional): Rex host label (from `rex hosts`) to start the agent on another machine." },
       },
       required: ["action"],
     } as any,
     async execute(_toolCallId, args, _signal, _onUpdate, _ctx) {
-      const { action, to, message, room, bridge, name, tool, task } = args as {
-        action: string; to?: string; message?: string; room?: string; bridge?: string; name?: string; tool?: "pi" | "claude"; task?: string;
+      const { action, to, message, room, bridge, name, tool, task, cwd, host: spawnHost } = args as {
+        action: string; to?: string; message?: string; room?: string; bridge?: string; name?: string; tool?: "pi" | "claude"; task?: string; cwd?: string; host?: string;
       };
 
       // The agent is calling a tool, so a turn is active: buffer incoming messages.
@@ -922,7 +957,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
       }
 
       if (action === "spawn_agent" && tool && name && task) {
-        const cmd = buildAgentCommand(tool, name.trim(), task, agentId, displayName);
+        const cmd = buildAgentCommand(tool, name.trim(), task, agentId, displayName, cwd, spawnHost);
         const result = spawnAgentTab(cmd);
         const summary = result.spawned
           ? { ok: true, spawned: true, agent: name, backend: result.backend, detail: result.detail,

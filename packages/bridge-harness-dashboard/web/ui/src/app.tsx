@@ -1020,7 +1020,7 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
             rows={4}
             value={task}
             onInput={(e) => setTask(e.currentTarget.value)}
-            placeholder="Review the open MR and DM me the risks"
+            placeholder="e.g. Review the open MR and DM me the risks"
             required
           />
         </label>
@@ -1059,6 +1059,9 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
           </div>
         ) : null}
         <div class="form__actions">
+          {!busy && (!name.trim() || !task.trim()) ? (
+            <span class="form__hint">Add a {!name.trim() ? "name" : "task"} to spawn</span>
+          ) : null}
           <button type="button" class="btn btn--ghost" onClick={onClose}>
             {result?.ok ? 'Done' : 'Cancel'}
           </button>

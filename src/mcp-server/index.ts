@@ -559,10 +559,12 @@ server.registerTool(
       tool: z.enum(["pi", "claude"]).describe("Which agent CLI to launch: \"pi\" or \"claude\""),
       name: z.string().describe("Memorable handle the new agent will claim (e.g. \"test-verifier\"); how you'll address it on the bridge"),
       task: z.string().describe("What the new agent should do, in plain language"),
+      cwd: z.string().optional().describe("Directory to start the agent in, on the target machine (\"~\" allowed). Default: this agent's directory locally, home on a remote host"),
+      host: z.string().optional().describe("Rex host label (from `rex hosts`) to start the agent on another machine. Default: this machine"),
     }),
   },
-  async ({ tool, name, task }) => {
-    const cmd = buildAgentCommand({ tool, name, task, requester: agentId, requesterDisplay: displayName });
+  async ({ tool, name, task, cwd, host }) => {
+    const cmd = buildAgentCommand({ tool, name, task, requester: agentId, requesterDisplay: displayName, cwd, host });
     const result = spawnAgentTab(cmd);
     const text = result.spawned
       ? `✅ Spawned ${tool} agent "${name}" — ${result.detail}. It will set_name "${name}" and DM you ` +

@@ -900,6 +900,12 @@ button {
   justify-content: flex-end;
   gap: 8px;
 }
+.form__hint {
+  margin-right: auto;
+  align-self: center;
+  font-size: 13px;
+  color: var(--text-2);
+}
 .seg {
   border: 0;
   padding: 0;
