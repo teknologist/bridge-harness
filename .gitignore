@@ -40,3 +40,6 @@ temp/
 # Local tool state
 .playwright-mcp/
 packages/*/.impeccable/
+.pi/input-history.jsonl
+.pi/loops/
+packages/*/.pi/
