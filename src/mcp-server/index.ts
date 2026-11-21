@@ -556,7 +556,7 @@ server.registerTool(
     description:
       "Spawn a NEW agent (pi, claude or codex) in a fresh terminal tab/pane and have it auto-register " +
       "on the bridge, then report back to YOU. Use it when the user says e.g. \"crea un agente de " +
-      "pi para que verifique X\". It detects the terminal host (cmux, tmux, zellij) and opens the " +
+      "pi para que verifique X\". It detects the terminal host (cmux, tmux, zellij, Rex) and opens the " +
       "tab programmatically; if the host can't (a plain emulator), it returns the exact command " +
       "for the user to run. The new agent is told to set_name to `name`, DM you to confirm it's " +
       "active, then do `task` — so after calling this, wait for its confirmation DM (use `read`).",
@@ -573,7 +573,10 @@ server.registerTool(
   async ({ tool, name, task, cwd, host, model, thinking }) => {
     let cmd;
     try {
-      cmd = buildAgentCommand({ tool, name, task, requester: agentId, requesterDisplay: displayName, cwd, host, model, thinking });
+      // BRIDGE_PI_CMD (e.g. "pi-profile nats") replaces bare `pi`, like the dashboard's launcher.
+      const piCmd = process.env.BRIDGE_PI_CMD?.trim();
+      const launcher = tool === "pi" && piCmd ? piCmd.split(/\s+/) : undefined;
+      cmd = buildAgentCommand({ tool, name, task, requester: agentId, requesterDisplay: displayName, cwd, host, model, thinking, launcher });
     } catch (err) {
       return { content: [{ type: "text" as const, text: `❌ ${(err as Error).message}` }], isError: true };
     }

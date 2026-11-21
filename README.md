@@ -363,6 +363,7 @@ Same NATS URL = same bridge: DMs and discovery work across everyone connected; r
 | `BRIDGE_NATS_URL` | `nats://localhost:4222` | NATS server URL — change for remote agents |
 | `BRIDGE_AGENT_ID` | `{base}-{pid}` | Pin a stable agent ID across restarts (how others DM you) |
 | `BRIDGE_DISPLAY_NAME` | agent base name (cmux-aware) | Human-readable name shown in `list_agents` |
+| `BRIDGE_PI_CMD` | `pi` | Command that `spawn_agent` runs for Pi agents, e.g. `pi-profile nats` |
 
 ---
 

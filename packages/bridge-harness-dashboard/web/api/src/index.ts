@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import fastify from 'fastify';
 import { buildAgentCommand } from '../../../../../dist/spawn/command.js';
 import { rexBin, spawnAgentTab } from '../../../../../dist/spawn/spawn.js';
-import { execFileSync } from 'node:child_process';
 import type { DirsResponse, HistoryResponse, HostsResponse, MessagesResponse, PaneInput, PaneScreen, SelfRequest, SendRequest, ServerEvent, SpawnRequest, SpawnResponse, TranscriptResponse } from '../../../shared/contract.ts';
 import { PANE_KEYS } from '../../../shared/contract.ts';
 import { createFleet, subjectToken } from './fleet.ts';
@@ -105,22 +104,27 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
     fleet.switchProject(body.project);
     return { ok: true, project: fleet.self.project };
   });
-  // Rex hosts (`rex hosts`), the remote spawn targets. Empty when rex is absent.
-  const rexHosts = (): string[] => {
-    try {
-      const out = execFileSync(rexBin(process.env), ['hosts', '--json'], { encoding: 'utf8', timeout: 5_000 });
-      return (JSON.parse(out).hosts ?? []).map((h: { host?: { label?: string } }) => h.host?.label).filter(Boolean);
-    } catch { return []; }
-  };
-  app.get('/hosts', async (): Promise<HostsResponse> => ({ hosts: rexHosts() }));
-  // The agent's terminal, to read and answer a prompt it is blocked on (see pane.ts).
+  // Rex hosts (`rex hosts`), the remote spawn targets. Empty when rex is absent. Read
+  // asynchronously (never block the event loop) and cached for a minute.
   const rexRun = rexRunner(rexBin(process.env));
+  let hostsCache: { at: number; hosts: Promise<string[]> } | undefined;
+  const rexHosts = (): Promise<string[]> => {
+    if (!hostsCache || Date.now() - hostsCache.at > 60_000) {
+      const hosts = rexRun(['hosts', '--json'])
+        .then(out => (JSON.parse(out).hosts ?? []).map((h: { host?: { label?: string } }) => h.host?.label).filter(Boolean) as string[])
+        .catch(() => { hostsCache = undefined; return [] as string[]; });
+      hostsCache = { at: Date.now(), hosts };
+    }
+    return hostsCache.hosts;
+  };
+  app.get('/hosts', async (): Promise<HostsResponse> => ({ hosts: await rexHosts() }));
+  // The agent's terminal, to read and answer a prompt it is blocked on (see pane.ts).
   const panes = createPanes(rexRun, rexHosts);
   // Folders on this machine or a Rex host, for the spawn dialog's directory picker.
   app.get<{ Querystring: { host?: string; path?: string; prefix?: string } }>('/dirs', {
     schema: { querystring: object({ host: string(255, 0, '^[^\\p{Cc}]*$'), path: string(1_024, 0, '^[^\\p{Cc}]*$'), prefix: string(255, 0, '^[^\\p{Cc}/]*$') }) },
   }, async ({ query }, reply): Promise<DirsResponse | void> => {
-    if (query.host && !rexHosts().includes(query.host)) return reply.code(400).send({ error: `unknown rex host: ${query.host}` });
+    if (query.host && !(await rexHosts()).includes(query.host)) return reply.code(400).send({ error: `unknown rex host: ${query.host}` });
     try { return await listDirs(rexRun, query.host || undefined, query.path ?? '~', query.prefix); } catch (err) { return reply.code(502).send({ error: (err as Error).message }); }
   });
   app.get<{ Params: { agentId: string } }>('/pane/:agentId', async ({ params }, reply) => {
@@ -151,10 +155,10 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
     cwd: string(1_024, 0, '^[^\\p{Cc}]*$'), host: string(255, 0, '^[^\\p{Cc}]*$'),
     model: string(128, 0, '^[A-Za-z0-9._:/@\\[\\]-]*$'), thinking: string(16, 0, '^[a-z]*$'),
   }, ['tool', 'name', 'task']), async ({ body }, reply) => {
-    if (body.host && !rexHosts().includes(body.host)) return reply.code(400).send({ error: `unknown rex host: ${body.host}` });
+    if (body.host && !(await rexHosts()).includes(body.host)) return reply.code(400).send({ error: `unknown rex host: ${body.host}` });
     const launcher = body.tool === 'pi' ? piLauncher : undefined;
     let cmd;
-    try { cmd = buildAgentCommand({ ...body, requester: fleet.self.agentId, launcher }); } catch (err) { return reply.code(400).send({ error: (err as Error).message }); }
+    try { cmd = buildAgentCommand({ ...body, cwd: body.cwd || (body.host ? undefined : '~'), requester: fleet.self.agentId, launcher }); } catch (err) { return reply.code(400).send({ error: (err as Error).message }); }
     const res: SpawnResponse = spawnAgentTab(cmd);
     return { spawned: res.spawned, detail: res.detail, manualCommand: res.manualCommand };
   });

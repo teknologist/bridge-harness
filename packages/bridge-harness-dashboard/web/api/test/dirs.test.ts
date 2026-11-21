@@ -23,4 +23,10 @@ describe('listDirs', () => {
     const out = await listDirs(rex({ path: '/nope', home: '/h', status: 'missing', entries: [] }).run, undefined, '/nope');
     expect(out.exists).toBe(false);
   });
+
+  // A host with no Rex session cannot list folders; say why and how to proceed, not rex's raw error.
+  it('explains a host with no Rex session', async () => {
+    const run: RexRun = async () => { throw new Error('Error: block target default not found: no sessions'); };
+    await expect(listDirs(run, 'spark1', '~')).rejects.toThrow(/no Rex session on spark1/);
+  });
 });

@@ -9,7 +9,13 @@ import type { RexRun } from './pane.ts';
 export async function listDirs(run: RexRun, host: string | undefined, path: string, prefix = ''): Promise<DirsResponse> {
   const args = [...(host ? ['-S', host] : []), 'do', 'com.superlogical.terminal.list_dir', `path=${path || '~'}`, 'limit=500'];
   if (prefix) args.push(`prefix=${prefix}`);
-  const out = JSON.parse(await run(args)) as {
+  // list_dir is a terminal action, so it needs a session on the host; a host with none
+  // (nothing spawned there yet) answers "no sessions". The first spawn creates one.
+  const reply = await run(args).catch((err: Error) => {
+    if (/no sessions/.test(err.message)) throw new Error(`no Rex session on ${host ?? 'this machine'} to read folders from — type the path; the first spawn there opens one`);
+    throw err;
+  });
+  const out = JSON.parse(reply) as {
     path?: string; home?: string; status?: string; truncated?: boolean;
     entries?: Array<{ name: string; file?: boolean }>;
   };

@@ -26,7 +26,7 @@ export function rexRunner(bin: string): RexRun {
 /** Keeps the tail of a capture: a prompt sits at the bottom of the screen. */
 const SCREEN_LINES = 60;
 
-export function createPanes(run: RexRun, hosts: () => string[]) {
+export function createPanes(run: RexRun, hosts: () => Promise<string[]>) {
   // block id → '' for the local server, else a host label.
   const where = new Map<string, string>();
   const serverArgs = (server: string) => (server ? ['-S', server] : []);
@@ -46,7 +46,7 @@ export function createPanes(run: RexRun, hosts: () => string[]) {
         where.delete(block);
       }
     }
-    for (const server of ['', ...hosts()]) {
+    for (const server of ['', ...(await hosts())]) {
       try {
         const text = await capture(block, server);
         where.set(block, server);

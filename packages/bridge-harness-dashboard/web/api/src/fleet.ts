@@ -200,11 +200,12 @@ export function createFleet(
     },
     /** The agent's Rex pane, if it published one. */
     pane(agentId: string): string | undefined {
-      return roster.resolve(agentId)?.pane;
+      return rexBlock(roster.resolve(agentId)?.pane);
     },
     /** The agent's pane and whether it sits idle between turns, the only state it may be shut down in. */
     agent(agentId: string) {
-      return roster.resolve(agentId);
+      const agent = roster.resolve(agentId);
+      return agent && { ...agent, pane: rexBlock(agent.pane) };
     },
     forget(agentId: string) {
       roster.forget(agentId);
@@ -286,4 +287,9 @@ export function createFleet(
       store.close();
     },
   };
+}
+
+/** An agent-published pane id, kept only when it has Rex's block-id shape (it reaches `rex -b`). */
+export function rexBlock(pane: string | undefined): string | undefined {
+  return pane && /^block:[A-Za-z0-9-]{1,64}$/.test(pane) ? pane : undefined;
 }

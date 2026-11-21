@@ -13,11 +13,21 @@ import { mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/**
+ * True when the env var `name` is set to a falsy word (0, false, no, off).
+ * @param {string} name
+ * @returns {boolean}
+ */
 const off = (name) => ["0", "false", "no", "off"].includes((process.env[name] ?? "").trim().toLowerCase());
 const shareTask = !off("BRIDGE_SHARE_TASK");
 // The MCP server tails this session's transcript file to stream the live conversation.
 const shareTranscript = !off("BRIDGE_SHARE_TRANSCRIPT");
 
+/**
+ * Writes `text` to $TMPDIR/bridge-harness/<name>-<agentId>.txt, readable by this user only.
+ * @param {string} name
+ * @param {string} text
+ */
 function writePrivate(name, text) {
   const dir = join(tmpdir(), "bridge-harness");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
