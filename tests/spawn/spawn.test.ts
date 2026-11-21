@@ -15,6 +15,24 @@ function recorder(stdout = ""): { run: Runner; calls: Array<{ file: string; args
 const cap = (backend: SpawnCapability["backend"], canSpawnTab: boolean): SpawnCapability =>
   ({ backend, canSpawnTab, method: "cmux-cli", detail: `${backend} test` });
 
+describe("buildAgentCommand launcher", () => {
+  it("prefixes the prompt with a custom launcher (dashboard runs pi via pi-profile)", () => {
+    const c = buildAgentCommand({ tool: "pi", name: "v", task: "t", requester: "r", launcher: ["pi-profile", "nats"] });
+    expect(c.argv).toEqual(["pi-profile", "nats", c.prompt]);
+    expect(c.shell.startsWith("pi-profile 'nats' '")).toBe(true);
+  });
+});
+
+describe("buildAgentCommand cwd", () => {
+  // The cd must happen on the TARGET machine, so ~ is left for its shell to expand.
+  it("wraps argv in sh -c cd, keeping ~ unquoted and the rest quoted", () => {
+    const c = buildAgentCommand({ tool: "pi", name: "v", task: "t", requester: "r", cwd: "~/my dir" });
+    expect(c.argv.slice(0, 3)).toEqual(["sh", "-c", `cd ~/'my dir' && exec "$@"`]);
+    expect(c.argv.slice(4)).toEqual(["pi", c.prompt]);
+    expect(c.shell.startsWith("cd ~/'my dir' && pi '")).toBe(true);
+  });
+});
+
 describe("spawnAgentTab", () => {
   it("cmux: creates a pane, parses the surface ref, then types the command + Enter", () => {
     const { run, calls } = recorder("OK surface:89 pane:28 workspace:3");
@@ -37,7 +55,29 @@ describe("spawnAgentTab", () => {
     const env = { REX_BIN_DIR: "/rex/bin", REX_SESSION: "session:abc" };
     const res = spawnAgentTab(cmd, cap("rex", true), env, run);
     expect(res.spawned).toBe(true);
-    expect(calls[0]).toEqual({ file: "/rex/bin/rex", args: ["window", "new", "-s", "session:abc", "verifier", "-c", process.cwd(), "--", ...cmd.argv] });
+    expect(calls[0]).toEqual({ file: "/rex/bin/rex", args: ["window", "new", "-s", "session:abc", "verifier", "-c", process.cwd(), "--keep-open", "--", ...cmd.argv] });
+  });
+
+  // Remote servers with several sessions reject an untargeted window (ambiguous), so
+  // remote agents always land in a dedicated session, never our local REX_SESSION.
+  const remote = buildAgentCommand({ tool: "pi", name: "r", task: "t", requester: "x", host: "spark1", cwd: "~/Dev/app" });
+  const sessions = (list: object[]) => {
+    const calls: { file: string; args: string[] }[] = [];
+    const run = (file: string, args: string[]) => { calls.push({ file, args }); return args.includes("list") ? JSON.stringify({ sessions: list }) : ""; };
+    return { run, calls };
+  };
+
+  it("rex host: creates the bridge-agents session when missing, even from tmux", () => {
+    const { run, calls } = sessions([{ session_id: "session:a", label: "other" }, { session_id: "session:b", label: "x" }]);
+    const res = spawnAgentTab(remote, cap("tmux", true), { REX_SESSION: "session:local" }, run);
+    expect(res.spawned).toBe(true);
+    expect(calls[1]).toEqual({ file: "rex", args: ["-S", "spark1", "session", "new", "bridge-agents", "--window", "r", "--keep-open", "--", ...remote.argv] });
+  });
+
+  it("rex host: reuses the existing bridge-agents session", () => {
+    const { run, calls } = sessions([{ session_id: "session:a", label: "other" }, { session_id: "session:ba", label: "bridge-agents" }]);
+    spawnAgentTab(remote, cap("rex", true), {}, run);
+    expect(calls[1].args).toEqual(["-S", "spark1", "window", "new", "-s", "session:ba", "r", "--keep-open", "--", ...remote.argv]);
   });
 
   it("tmux: opens a named window in one shot", () => {

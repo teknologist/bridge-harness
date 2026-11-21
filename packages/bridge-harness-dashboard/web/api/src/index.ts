@@ -3,8 +3,9 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import fastify from 'fastify';
 import { buildAgentCommand } from '../../../../../dist/spawn/command.js';
-import { spawnAgentTab } from '../../../../../dist/spawn/spawn.js';
-import type { HistoryResponse, MessagesResponse, SelfRequest, SendRequest, ServerEvent, SpawnRequest, SpawnResponse } from '../../../shared/contract.ts';
+import { rexBin, spawnAgentTab } from '../../../../../dist/spawn/spawn.js';
+import { execFileSync } from 'node:child_process';
+import type { HistoryResponse, HostsResponse, MessagesResponse, SelfRequest, SendRequest, ServerEvent, SpawnRequest, SpawnResponse } from '../../../shared/contract.ts';
 import { createFleet, subjectToken } from './fleet.ts';
 import { openHistory } from './history.ts';
 import { openMessageStore } from './messages.ts';
@@ -27,6 +28,8 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
   const expectedSession = Buffer.from(session);
   const app = fastify({ logger: true, ajv: { customOptions: { coerceTypes: false, removeAdditional: false } } });
   const dataDirectory = options.dataDirectory ?? process.env.BRIDGE_DASHBOARD_DATA ?? join(homedir(), '.bridge-harness', 'dashboard');
+  // Pi agents launch through this command (space-separated argv, prompt appended).
+  const piLauncher = (process.env.BRIDGE_DASHBOARD_PI_CMD?.trim() || 'pi-profile nats').split(/\s+/);
   const history = await openHistory(dataDirectory);
   const retentionDays = Number(process.env.BRIDGE_DASHBOARD_RETENTION_DAYS) || 30;
   const store = openMessageStore(dataDirectory, retentionDays);
@@ -96,11 +99,22 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
     fleet.switchProject(body.project);
     return { ok: true, project: fleet.self.project };
   });
+  // Rex hosts (`rex hosts`), the remote spawn targets. Empty when rex is absent.
+  const rexHosts = (): string[] => {
+    try {
+      const out = execFileSync(rexBin(process.env), ['hosts', '--json'], { encoding: 'utf8', timeout: 5_000 });
+      return (JSON.parse(out).hosts ?? []).map((h: { host?: { label?: string } }) => h.host?.label).filter(Boolean);
+    } catch { return []; }
+  };
+  app.get('/hosts', async (): Promise<HostsResponse> => ({ hosts: rexHosts() }));
   app.post<{ Body: SpawnRequest }>('/spawn', body({
     tool: { enum: ['pi', 'claude'] }, name: string(64, 1, '^[a-zA-Z0-9_-]+$'), task: string(4_096, 1, '^[^#\\p{Cc}\\p{Zl}\\p{Zp}]+$'),
-  }, ['tool', 'name', 'task']), async ({ body }): Promise<SpawnResponse> => {
-    const { spawned, detail, manualCommand } = spawnAgentTab(buildAgentCommand({ ...body, requester: fleet.self.agentId }));
-    return { spawned, detail, manualCommand };
+    cwd: string(1_024, 0, '^[^\\p{Cc}]*$'), host: string(255, 0, '^[^\\p{Cc}]*$'),
+  }, ['tool', 'name', 'task']), async ({ body }, reply) => {
+    if (body.host && !rexHosts().includes(body.host)) return reply.code(400).send({ error: `unknown rex host: ${body.host}` });
+    const launcher = body.tool === 'pi' ? piLauncher : undefined;
+    const res: SpawnResponse = spawnAgentTab(buildAgentCommand({ ...body, requester: fleet.self.agentId, launcher }));
+    return { spawned: res.spawned, detail: res.detail, manualCommand: res.manualCommand };
   });
   app.get('/events', (_request, reply) => {
     reply.hijack();

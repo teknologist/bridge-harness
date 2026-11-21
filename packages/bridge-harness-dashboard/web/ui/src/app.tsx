@@ -940,7 +940,13 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
   const [tool, setTool] = useState<'pi' | 'claude'>('claude');
   const [name, setName] = useState('');
   const [task, setTask] = useState('');
+  const [cwd, setCwd] = useState('');
+  const [host, setHost] = useState('');
+  const [hosts, setHosts] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.hosts().then((r) => setHosts(r.hosts), () => setHosts([]));
+  }, []);
   const [result, setResult] = useState<{
     ok: boolean;
     text: string;
@@ -956,6 +962,8 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
         tool,
         name: name.trim(),
         task: task.trim(),
+        cwd: cwd.trim() || undefined,
+        host: host || undefined,
       });
       setResult({
         ok: res.spawned,
@@ -976,8 +984,9 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
     <Modal title="Spawn an agent" onClose={onClose}>
       <form class="form" onSubmit={submit}>
         <p class="muted">
-          Opens a new terminal tab on the machine running the dashboard. The
-          agent registers on the bridge and DMs you when it starts.
+          Opens a new terminal tab on the machine running the dashboard, or on
+          a Rex host. The agent registers on the bridge and DMs you when it
+          starts.
         </p>
         <fieldset class="seg">
           <legend class="label">Agent</legend>
@@ -1015,6 +1024,29 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
             required
           />
         </label>
+        <label class="field">
+          <span class="label">Directory</span>
+          <input
+            value={cwd}
+            onInput={(e) => setCwd(e.currentTarget.value)}
+            placeholder={host ? '~ (home on that host)' : 'dashboard directory'}
+          />
+        </label>
+        {hosts.length ? (
+          <label class="field">
+            <span class="label">Host</span>
+            <select
+              class="select"
+              value={host}
+              onChange={(e) => setHost(e.currentTarget.value)}
+            >
+              <option value="">This machine</option>
+              {hosts.map((h) => (
+                <option value={h}>{h}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         {result ? (
           <div
             class={result.ok ? 'ok' : result.command ? 'warn' : 'error'}

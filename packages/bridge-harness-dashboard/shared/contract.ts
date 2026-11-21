@@ -135,12 +135,20 @@ export interface SelfRequest {
 // Switches which project's rooms the dashboard subscribes to (use_bridge). DMs and
 // the roster are global and unaffected.
 
-// ── POST /api/spawn  { tool, name, task } → SpawnResponse ─────────────────────
-// Spawns on the machine running the dashboard. The new agent DMs the dashboard.
+// ── POST /api/spawn  { tool, name, task, cwd?, host? } → SpawnResponse ───────
+// Spawns on the machine running the dashboard, or on a Rex host (`host`, one of
+// GET /api/hosts). `cwd` is the start directory on that machine (~ allowed).
+// The new agent DMs the dashboard.
 export interface SpawnRequest {
   tool: 'pi' | 'claude';
   name: string;
   task: string;
+  cwd?: string;
+  host?: string;
+}
+// ── GET /api/hosts → HostsResponse — Rex hosts usable as spawn targets ────────
+export interface HostsResponse {
+  hosts: string[];
 }
 export interface SpawnResponse {
   spawned: boolean;

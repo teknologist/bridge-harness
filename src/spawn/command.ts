@@ -16,6 +16,12 @@ export interface SpawnRequest {
   requester: string;
   /** Optional human-readable requester name, used only in the prose ("report to Carlos"). */
   requesterDisplay?: string;
+  /** Override the launcher argv (default `[tool]`), e.g. ["pi-profile", "nats"]. The prompt is appended. */
+  launcher?: string[];
+  /** Directory to start the agent in, on the target machine. "~" / "~/x" expand there. */
+  cwd?: string;
+  /** Rex host label (`rex hosts`) to start the agent on instead of this machine. */
+  host?: string;
 }
 
 export interface AgentCommand {
@@ -27,6 +33,10 @@ export interface AgentCommand {
   prompt: string;
   /** The agent's handle, reused as the tab/window title by the spawner. */
   label: string;
+  /** Start directory, already folded into argv/shell; kept so spawners can skip their own cwd default. */
+  cwd?: string;
+  /** Rex host label to spawn on; undefined = this machine. */
+  host?: string;
 }
 
 // The startup prompt MUST be a single line: it gets typed into a terminal via `send` /
@@ -51,11 +61,32 @@ function shSingleQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
+// `cd` into dir. A leading ~ stays unquoted so the TARGET machine's shell expands it
+// (a remote host's home differs from ours); the rest is single-quoted.
+export function cdCommand(dir: string): string {
+  if (dir === "~") return "cd ~";
+  if (dir.startsWith("~/")) return `cd ~/${shSingleQuote(dir.slice(2))}`;
+  return `cd ${shSingleQuote(dir)}`;
+}
+
 export function buildAgentCommand(req: SpawnRequest): AgentCommand {
   const prompt = buildStartupPrompt(req);
   // Both `pi` and `claude` take the prompt as a positional arg and start an INTERACTIVE
   // session by default (no -p), so the spawned agent stays alive to report back.
-  const argv = [req.tool, prompt];
+  const argv = [...(req.launcher?.length ? req.launcher : [req.tool]), prompt];
   const shell = `${argv[0]} ${argv.slice(1).map(shSingleQuote).join(" ")}`;
-  return { argv, shell, prompt, label: req.name };
+  const cwd = req.cwd?.trim() || undefined;
+  const host = req.host?.trim() || undefined;
+  if (!cwd) return { argv, shell, prompt, label: req.name, host };
+  // argv-based spawners (rex, zellij) get a tiny sh wrapper so the cd (and ~) happens on
+  // the target; the prompt still travels as a separate arg, never re-parsed by a shell.
+  const cd = cdCommand(cwd);
+  return {
+    argv: ["sh", "-c", `${cd} && exec "$@"`, "sh", ...argv],
+    shell: `${cd} && ${shell}`,
+    prompt,
+    label: req.name,
+    cwd,
+    host,
+  };
 }

@@ -4,6 +4,7 @@ import type {
   SelfRequest,
   SendResponse,
   ServerEvent,
+  HostsResponse,
   SpawnRequest,
   SpawnResponse,
   StateResponse,
@@ -51,6 +52,7 @@ export const api = {
   project: (project: string) =>
     post<{ ok: true; project: string }>('/project', { project }),
   spawn: (req: SpawnRequest) => post<SpawnResponse>('/spawn', req),
+  hosts: () => call<HostsResponse>('/hosts'),
 };
 
 const EVENT_TYPES: ServerEvent['type'][] = [
