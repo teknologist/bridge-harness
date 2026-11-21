@@ -183,7 +183,7 @@ function Shell({ board }: { board: Board }) {
 
   useEffect(() => {
     if (open) void board.openThread(open).catch(() => undefined);
-  }, [open]);
+  }, [open, board.state.epoch]);
 
   function openAgent(a: AgentView) {
     board.markSeen(a.agentId);
@@ -1103,7 +1103,7 @@ function Drawer(props: {
               {showTerm ? (
                 <PaneTerminal agentId={peerId} />
               ) : (
-                <Transcript agentId={peerId} lines={state.transcripts[peerId]} onOpen={props.onTranscript} />
+                <Transcript agentId={peerId} epoch={state.epoch} lines={state.transcripts[peerId]} onOpen={props.onTranscript} />
               )}
               {!showTerm && peer && (modelOf(peer) || ctxOf(peer)) ? (
                 <footer class="term__foot">
@@ -1211,6 +1211,8 @@ function Split(props: { messages: JSX.Element; transcript: JSX.Element }) {
 
 function Transcript(props: {
   agentId: string;
+  /** Stream reconnect count: a reconnect refetches what the pane missed. */
+  epoch: number;
   lines: TranscriptLine[] | undefined;
   onOpen: (agentId: string) => Promise<void>;
 }) {
@@ -1220,12 +1222,13 @@ function Transcript(props: {
   const pinned = useRef(true);
 
   useEffect(() => {
+    setError(undefined);
     props
       .onOpen(props.agentId)
       .catch((e: unknown) =>
         setError(e instanceof Error ? e.message : String(e))
       );
-  }, [props.agentId]);
+  }, [props.agentId, props.epoch]);
 
   // Follow the tail like a terminal, unless the reader scrolled up.
   useEffect(() => {

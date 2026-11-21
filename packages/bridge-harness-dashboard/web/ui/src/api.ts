@@ -81,25 +81,47 @@ const EVENT_TYPES: ServerEvent['type'][] = [
 
 /**
  * Subscribes to /api/events. `onOpen` fires on every (re)connect so the caller can
- * refetch /api/state, as the contract requires. EventSource reconnects by itself;
- * a 401 surfaces as a closed stream, which the caller detects with a state fetch.
+ * refetch /api/state, as the contract requires. EventSource retries a dropped stream
+ * by itself, but gives up for good on an error response (a 500 while `wattpm dev`
+ * restarts the API), so a closed stream is reopened here with backoff. A 401 shows
+ * up the same way; the caller's state fetch on reopen detects it.
  */
 export function subscribe(
   onEvent: (e: ServerEvent) => void,
   onOpen: () => void,
   onDown: () => void
 ) {
-  const es = new EventSource('/api/events', { withCredentials: true });
-  es.onopen = onOpen;
-  es.onerror = onDown;
-  for (const type of EVENT_TYPES) {
-    es.addEventListener(type, (msg) => {
-      try {
-        onEvent(JSON.parse((msg as MessageEvent<string>).data) as ServerEvent);
-      } catch {
-        /* malformed frame: ignore, next /state refetch repairs */
-      }
-    });
-  }
-  return () => es.close();
+  let es: EventSource | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let delay = 1_000;
+  let stopped = false;
+  const open = () => {
+    es = new EventSource('/api/events', { withCredentials: true });
+    es.onopen = () => {
+      delay = 1_000;
+      onOpen();
+    };
+    es.onerror = () => {
+      onDown();
+      if (stopped || es?.readyState !== EventSource.CLOSED) return;
+      es.close();
+      retry = setTimeout(open, delay);
+      delay = Math.min(delay * 2, 15_000);
+    };
+    for (const type of EVENT_TYPES) {
+      es.addEventListener(type, (msg) => {
+        try {
+          onEvent(JSON.parse((msg as MessageEvent<string>).data) as ServerEvent);
+        } catch {
+          /* malformed frame: ignore, next /state refetch repairs */
+        }
+      });
+    }
+  };
+  open();
+  return () => {
+    stopped = true;
+    clearTimeout(retry);
+    es?.close();
+  };
 }

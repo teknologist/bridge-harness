@@ -42,6 +42,8 @@ export interface MessageStore {
   /** Stores a transcript line once; false when it was already stored (agent restarts replay the tail). */
   insertTranscript(line: TranscriptLine): boolean;
   transcript(agentId: string, before: number | undefined, limit: number): TranscriptResponse;
+  /** Newest stored transcript line time, or undefined when none: where a catch-up starts. */
+  latestTranscript(): number | undefined;
   prune(now?: number): void;
   close(): void;
 }
@@ -97,6 +99,7 @@ export function openMessageStore(
     SELECT id, role, text, timestamp FROM transcript
     WHERE agent = ? AND timestamp < ? ORDER BY timestamp DESC, rowid DESC LIMIT ?`);
   const deleteOldLines = db.prepare('DELETE FROM transcript WHERE timestamp < ?');
+  const newestLine = db.prepare('SELECT MAX(timestamp) AS t FROM transcript');
 
   const insertMessage = db.prepare(
     'INSERT OR IGNORE INTO messages (sender, recipient, content, timestamp) VALUES (?, ?, ?, ?)'
@@ -253,6 +256,9 @@ export function openMessageStore(
         .reverse()
         .map((row) => ({ ...row, agentId }));
       return { lines, hasMore };
+    },
+    latestTranscript() {
+      return (newestLine.get() as { t: number | null }).t ?? undefined;
     },
     prune(now = Date.now()) {
       transaction(() => {

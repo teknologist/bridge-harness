@@ -19,6 +19,8 @@ export interface BoardState {
   auth: 'checking' | 'needed' | 'ok';
   status?: BridgeStatus;
   streamUp: boolean;
+  /** Bumps on every stream (re)connect, so open panes refetch what they missed. */
+  epoch: number;
   agents: Record<string, AgentView>;
   threads: Record<string, ThreadSummary>;
   messages: Record<string, ChatMessage[]>;
@@ -44,6 +46,7 @@ type Action =
 const initial: BoardState = {
   auth: 'checking',
   streamUp: false,
+  epoch: 0,
   agents: {},
   threads: {},
   messages: {},
@@ -88,7 +91,7 @@ function reduce(s: BoardState, a: Action): BoardState {
     case 'auth':
       return { ...s, auth: a.auth };
     case 'stream':
-      return { ...s, streamUp: a.up };
+      return { ...s, streamUp: a.up, epoch: a.up && !s.streamUp ? s.epoch + 1 : s.epoch };
     case 'error':
       return { ...s, loadError: a.message };
     case 'messages':

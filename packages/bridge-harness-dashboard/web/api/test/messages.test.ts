@@ -118,4 +118,16 @@ describe('message store', () => {
     expect(older.lines.map((l) => l.id)).toEqual(['l7', 'l8', 'l9']);
     store.close();
   });
+  // Transcript catch-up after a restart replays from the newest stored line.
+  it("reports the newest stored transcript line", () => {
+    const store = openMessageStore(tempDir(), 30);
+    const line = (n: number, agentId = "claude-code-a") => ({
+      id: `l${n}`, agentId, role: "assistant" as const, text: `line ${n}`, timestamp: 1_000 + n,
+    });
+    expect(store.latestTranscript()).toBeUndefined();
+    store.insertTranscript(line(5));
+    store.insertTranscript(line(9, "pi-b"));
+    store.insertTranscript(line(7));
+    expect(store.latestTranscript()).toBe(line(9).timestamp);
+  });
 });

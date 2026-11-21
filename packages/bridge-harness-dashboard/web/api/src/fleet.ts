@@ -1,8 +1,8 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { connect, Events, JSONCodec, type ConnectionOptions, type NatsConnection, type Subscription } from 'nats';
+import { connect, DeliverPolicy, Events, JSONCodec, type ConnectionOptions, type NatsConnection, type Subscription } from 'nats';
 import { getHost, getProject, NATS_CONNECT_OPTIONS, NATS_URL, PRESENCE_INTERVAL_MS, PRESENCE_TTL_MS } from '../../../../../dist/shared/config.js';
 import { subjects } from '../../../../../dist/shared/subjects.js';
-import { DM_STREAM, ensureDmStream } from '../../../../../dist/shared/jetstream.js';
+import { DM_STREAM, TRANSCRIPT_STREAM, ensureDmStream, ensureTranscriptStream } from '../../../../../dist/shared/jetstream.js';
 import type { PresenceEvent } from '../../../../../dist/shared/presence.js';
 import type { RegistryEvent } from '../../../../../dist/shared/types.js';
 import type { BridgeStatus, ChatMessage, SendResponse, ServerEvent, StateResponse, ThreadRef, TranscriptLine } from '../../../shared/contract.ts';
@@ -130,6 +130,35 @@ export function createFleet(
       }));
     } catch { if (!stop.signal.aborted) warn('DM backfill unavailable'); }
   }
+  // Replays transcript lines stored while this dashboard was away. Starts a few minutes
+  // before the newest stored line (agent clocks may run ahead of the NATS server's);
+  // the overlap is dropped by insertTranscript's id dedupe.
+  const CATCH_UP_MARGIN_MS = 5 * 60_000;
+  async function transcriptCatchUp(connection: Connection) {
+    try {
+      await ensureTranscriptStream(connection as NatsConnection);
+      if (stop.signal.aborted || nc !== connection) return;
+      const latest = store.latestTranscript();
+      const consumer = await connection.jetstream().consumers.get(TRANSCRIPT_STREAM, latest === undefined
+        ? { filterSubjects: 'bridge.transcript.*' }
+        : { filterSubjects: 'bridge.transcript.*', deliver_policy: DeliverPolicy.StartTime, opt_start_time: new Date(latest - CATCH_UP_MARGIN_MS).toISOString() });
+      try {
+        for (let pending = (await consumer.info()).num_pending; pending > 0 && !stop.signal.aborted && nc === connection;) {
+          const batch = Math.min(pending, 500);
+          const messages = await consumer.fetch({ max_messages: batch, expires: 2_000 });
+          let got = 0;
+          for await (const message of messages) {
+            got++;
+            try { transcriptLine(message.data, message.subject); } catch { /* invalid line: skip */ }
+          }
+          if (got === 0) break;
+          pending -= got;
+        }
+      } finally {
+        await consumer.delete().catch(() => undefined);
+      }
+    } catch { if (!stop.signal.aborted) warn('Transcript catch-up unavailable'); }
+  }
   async function watch(connection: Connection) {
     for await (const event of connection.status()) {
       if (stop.signal.aborted) break;
@@ -138,6 +167,7 @@ export function createFleet(
         statusChanged(true);
         announce();
         void backfill(connection, [agentId, ...aliases]);
+        void transcriptCatchUp(connection);
       }
     }
   }
@@ -173,6 +203,7 @@ export function createFleet(
         }
         statusChanged(true);
         void backfill(connection, [agentId, ...aliases]);
+        void transcriptCatchUp(connection);
         await connection.closed();
       } catch {
         await nc?.close();
