@@ -1,6 +1,6 @@
 {
   "name": "@cocodrino/bridge-harness-dashboard",
-  "version": "0.3.40",
+  "version": "0.3.41",
   "private": true,
   "description": "Web dashboard for the bridge-harness agent fleet: live roster, threads, actions, history",
   "type": "module",

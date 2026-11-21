@@ -39,6 +39,18 @@
   src: url('/fonts/ibm-plex-mono-600-latin.woff2') format('woff2');
 }
 @font-face {
+  font-family: 'Barlow Condensed';
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-condensed-600-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/barlow-condensed-700-latin.woff2') format('woff2');
+}
+@font-face {
   font-family: 'Martian Mono';
   font-weight: 100 800;
   font-display: swap;
@@ -56,19 +68,22 @@
   --text: #ecebe4;
   --text-2: #b4b2a9; /* 8.6:1 on housing */
   --text-3: #8e8c85; /* 5.2:1 on housing */
-  --claude: #4f8cf0;
+  --claude: #e07b53; /* Claude orange, kept apart from the amber accent */
   --pi: #9b74ec;
+  --codex: #4f8cf0;
   --human: #f2b632;
   --room: #8e8c85;
   --amber: #f2b632;
   --amber-ink: #1a1405;
   --live: #7fd18b;
+  --taxi: #5aa9ff;
   --stale: #8e8c85;
   --danger: #ff8a7a;
   --radius: 6px;
   --radius-lg: 14px;
   --label: 'Barlow Semi Condensed', 'Arial Narrow', sans-serif;
   --mono: 'Martian Mono', ui-monospace, Menlo, monospace;
+  --board: 'Barlow Condensed', 'Arial Narrow', sans-serif; /* split-flap lettering */
   --term: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
   --flip-ms: 260ms;
 }
@@ -215,6 +230,22 @@ button {
   padding: 0;
   justify-content: center;
   background: transparent;
+}
+
+/* Shutting an agent down is destructive: red outline, solid red to confirm. */
+.btn--danger {
+  color: var(--danger);
+}
+.btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.btn--danger-solid {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.btn--danger-solid:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 85%, #000);
 }
 
 /* ── splash / login ─────────────────────────────────────────────────────── */
@@ -514,7 +545,7 @@ button {
   width: 64px;
 }
 .rows th:nth-child(6) {
-  width: 190px;
+  width: 224px;
 }
 .rows th:nth-child(7) {
   width: 64px;
@@ -589,11 +620,21 @@ button {
   margin-right: 10px;
   flex: none;
 }
+.kind--mark {
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  margin-right: 8px;
+  background: none;
+}
 .kind--claude {
-  background: var(--claude);
+  color: var(--claude);
 }
 .kind--pi {
-  background: var(--pi);
+  color: var(--pi);
+}
+.kind--codex {
+  color: var(--codex);
 }
 .kind--human {
   background: var(--human);
@@ -602,7 +643,10 @@ button {
 .kind--room {
   background: var(--room);
 }
-.row--stale .kind {
+.row--stale .kind--mark {
+  color: var(--stale);
+}
+.row--stale .kind:not(.kind--mark) {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--stale);
 }
@@ -664,8 +708,9 @@ button {
 .flap.status,
 .flap.mail,
 .flap.tag {
-  font: 600 12px/1 var(--mono);
-  letter-spacing: 0.06em;
+  font: 600 14px/1 var(--board);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   padding: 5px 7px;
   background: var(--housing);
   background-image: linear-gradient(
@@ -719,12 +764,13 @@ button {
   position: relative;
   display: inline-grid;
   place-items: center;
-  width: 1.2em;
+  width: 1em;
   height: 1.75em;
   border-radius: 2px;
   background: linear-gradient(to bottom, #24282e 0 50%, #1b1e23 50% 100%);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 1px 0 #050506;
-  font: 600 13px/1 var(--mono);
+  font: 700 16px/1 var(--board);
+  text-transform: uppercase;
   white-space: pre;
   transform-origin: 50% 50%;
 }
@@ -739,7 +785,7 @@ button {
   animation: flip 110ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 .board__clock .flap__tile {
-  font-size: 15px;
+  font-size: 18px;
   color: var(--amber);
 }
 
@@ -748,6 +794,83 @@ button {
 .rows th:nth-child(6) {
   position: relative;
   text-align: right;
+}
+/* Flight phase: a plane in front of the status flaps. */
+.phase {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 8px;
+  color: var(--text-3);
+  flex: none;
+}
+.phase--takeoff,
+.phase--flight,
+.phase--landing,
+.phase--arrive {
+  color: var(--live);
+}
+.phase--delayed,
+.phase--depart {
+  color: var(--stale);
+}
+.phase--delayed {
+  opacity: 0.6;
+}
+.plane {
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.plane__windows {
+  stroke-width: 0.8;
+  stroke-dasharray: 0 1.6;
+}
+.plane__wheel {
+  fill: currentColor;
+  stroke: none;
+}
+.plane__strip {
+  stroke-width: 1;
+  stroke-opacity: 0.45;
+}
+.plane__centre {
+  stroke-width: 0.9;
+  stroke-dasharray: 2.2 2;
+  stroke-opacity: 0.35;
+}
+.phase--taxi {
+  color: var(--taxi);
+}
+.phase--takeoff .plane__fly {
+  animation: takeoff 2.6s ease-in infinite;
+}
+.phase--landing .plane__fly {
+  animation: landing 2.6s ease-out infinite;
+}
+.phase--flight .plane__fly {
+  animation: cruise 3s ease-in-out infinite;
+}
+.phase--taxi .plane__fly {
+  animation: taxi 2.4s ease-in-out infinite;
+}
+@keyframes takeoff {
+  0% { translate: -4px 2px; opacity: 0; }
+  15%, 85% { opacity: 1; }
+  100% { translate: 4px -2.5px; opacity: 0; }
+}
+@keyframes landing {
+  0% { translate: -4px -2.5px; opacity: 0; }
+  15%, 85% { opacity: 1; }
+  100% { translate: 4px 1.5px; opacity: 0; }
+}
+@keyframes cruise {
+  50% { translate: 0 -1px; }
+}
+@keyframes taxi {
+  50% { translate: 1.5px 0; }
 }
 .boarding {
   position: absolute;
@@ -782,7 +905,9 @@ button {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .boarding {
+  .boarding,
+  .phase,
+  .plane__fly {
     animation: none;
   }
   .flap__tile,
@@ -868,6 +993,11 @@ button {
   gap: 12px;
   padding: 16px 18px 14px;
   border-bottom: 1px solid var(--rule);
+}
+.drawer__actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 .drawer__title {
   margin: 0;
@@ -1369,4 +1499,92 @@ button {
 .msg__to {
   font-weight: 500;
   color: var(--text-3);
+}
+
+/* ── waiting on the user ─────────────────────────────────────────────────── */
+
+/* An agent blocked on a prompt: amber lamp blinking fast, row tinted, count in the header. */
+.boarding--waiting {
+  background: var(--amber);
+  box-shadow: 0 0 10px var(--amber);
+  animation-duration: 0.8s;
+}
+.row--waiting {
+  background: rgb(242 182 50 / 0.06);
+}
+.phase--waiting {
+  color: var(--amber);
+}
+.board__waiting {
+  color: var(--amber);
+  animation: boarding 1.6s steps(1) infinite;
+}
+.board__waiting b {
+  color: var(--amber);
+}
+
+/* The agent's terminal, read and answered through Rex. */
+.prompt {
+  border-bottom: 1px solid var(--rule);
+  padding: 10px 16px 12px;
+}
+.prompt--waiting {
+  background: rgb(242 182 50 / 0.06);
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+.prompt__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: 600 12px/1 var(--label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.prompt--waiting .prompt__head {
+  color: var(--amber);
+}
+.prompt__screen {
+  margin: 10px 0 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #0b0c0e;
+  color: var(--text);
+  font: 400 11px/1.45 var(--term);
+  white-space: pre;
+}
+.prompt__error {
+  margin: 0 0 8px;
+  color: var(--stale);
+  font-size: 13px;
+}
+.prompt__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.btn--key {
+  min-width: 36px;
+  padding: 6px 10px;
+  font: 600 12px/1 var(--term);
+}
+.prompt__form {
+  display: flex;
+  gap: 8px;
+}
+.prompt__form input {
+  flex: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .board__waiting,
+  .boarding--waiting {
+    animation: none;
+  }
 }

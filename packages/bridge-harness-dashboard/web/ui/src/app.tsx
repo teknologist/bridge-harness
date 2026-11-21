@@ -4,9 +4,11 @@ import {
   History as HistoryIcon,
   LogOut,
   MessagesSquare,
+  MessageCircleQuestion,
   Pencil,
   PlaneTakeoff,
   Plus,
+  Power,
   Rows3,
   SendHorizontal,
   X,
@@ -15,11 +17,13 @@ import type {
   AgentView,
   ChatMessage,
   HistoryEvent,
+  PaneKey,
   ThreadSummary,
   TranscriptLine,
 } from '../../../shared/contract.ts';
 import { threadKey } from '../../../shared/contract.ts';
 import { api } from './api.ts';
+import { KindMark } from './brand.tsx';
 import { Flap } from './flap.tsx';
 import { useBoard, type BoardState } from './store.ts';
 
@@ -63,6 +67,7 @@ const day = (ts: number) =>
 const kindLabel: Record<AgentView['kind'], string> = {
   claude: 'Claude Code',
   pi: 'Pi',
+  codex: 'Codex',
   human: 'Operator',
   other: 'Agent',
 };
@@ -342,18 +347,122 @@ function NatsLamp({ state }: { state: BoardState }) {
 // ── board ───────────────────────────────────────────────────────────────────
 
 /** Real repository an agent works in; older agents only report their worktree folder. */
-/** Board order: working first, then idle or unknown, then stale. */
+/** Board order: waiting on the user first, then working, idle or unknown, then stale. */
 function rank(a: AgentView): number {
   if (a.liveness === 'stale') return 2;
+  if (a.activity === 'waiting') return -1;
   return a.activity === 'working' ? 0 : 1;
 }
 
-function statusOf(a: AgentView): { label: string; tone: 'live' | 'stale' | 'muted' } {
-  if (a.liveness === 'stale') return { label: 'DELAYED', tone: 'stale' };
-  if (a.activity === 'working') return { label: 'IN FLIGHT', tone: 'live' };
-  if (a.activity === 'idle') return { label: 'AT GATE', tone: 'muted' };
-  return { label: 'ON TIME', tone: 'muted' }; // agent predates the activity signal
+type Phase = 'waiting' | 'takeoff' | 'flight' | 'landing' | 'taxi' | 'gate' | 'ontime' | 'delayed';
+
+/** How long a take-off, landing or taxi stays on the board after the change. */
+const MANOEUVRE_MS = 20_000;
+
+const phases: Record<Phase, { label: string; tone: 'live' | 'stale' | 'muted' | 'mail' }> = {
+  waiting: { label: 'WAITING', tone: 'mail' }, // blocked on a prompt only the user can answer
+  takeoff: { label: 'TAKE OFF', tone: 'live' },
+  flight: { label: 'IN FLIGHT', tone: 'live' },
+  landing: { label: 'LANDING', tone: 'live' },
+  taxi: { label: 'TAXIING', tone: 'muted' },
+  gate: { label: 'AT GATE', tone: 'muted' },
+  ontime: { label: 'ON TIME', tone: 'muted' }, // agent predates the activity signal
+  delayed: { label: 'DELAYED', tone: 'stale' },
+};
+
+/**
+ * Where the agent is in its flight. Take-off and landing mark a turn that just
+ * started or ended; taxiing marks an agent that just arrived on the bridge.
+ * `since` is when this browser last saw the agent's activity change.
+ */
+function phaseOf(a: AgentView, since: number | undefined, now: number): Phase {
+  if (a.liveness === 'stale') return 'delayed';
+  if (a.activity === 'waiting') return 'waiting';
+  const fresh = since !== undefined && now - since < MANOEUVRE_MS;
+  if (a.activity === 'working') return fresh ? 'takeoff' : 'flight';
+  if (a.activity === 'idle' && fresh) return 'landing';
+  if (now - a.joinedAt < MANOEUVRE_MS) return 'taxi';
+  return a.activity === 'idle' ? 'gate' : 'ontime';
 }
+
+/** Remembers when each agent's activity last changed, as seen by this browser. */
+function useActivityChanges(agents: AgentView[], now: number): Map<string, number> {
+  const seen = useRef(new Map<string, { activity: AgentView['activity']; at?: number }>());
+  for (const a of agents) {
+    const prev = seen.current.get(a.agentId);
+    if (!prev) seen.current.set(a.agentId, { activity: a.activity });
+    else if (prev.activity !== a.activity) {
+      // idle → working is a take-off; working → idle a landing. A first signal is neither.
+      const at = prev.activity ? now : undefined;
+      seen.current.set(a.agentId, { activity: a.activity, at });
+    }
+  }
+  const out = new Map<string, number>();
+  for (const [id, v] of seen.current) if (v.at !== undefined) out.set(id, v.at);
+  return out;
+}
+
+/** Side-profile airliner, nose right, in a 36×22 box whose ground line is y 19. */
+const PLANE_BODY = (
+  <>
+    <path d="M11 9.6H26c2.6 0 4.5 1 4.5 1.8s-1.7 1.4-4.5 1.4H9.4L5 10.2l.6-5.8h1.8z" />
+    <path d="M19.4 12.8l-3.2 3h1.5l4.3-3" />
+    <path class="plane__windows" d="M12.5 11.1h11" />
+    <path d="M27 10.7h1.5" />
+  </>
+);
+const PLANE_GEAR = (
+  <>
+    <path d="M11.5 12.8v1.6M25 12.8v1.6" />
+    <circle class="plane__wheel" cx="11.5" cy="15.2" r=".8" />
+    <circle class="plane__wheel" cx="25" cy="15.2" r=".8" />
+  </>
+);
+type Pose = { rot: number; dy: number; ground?: 'runway' | 'taxiway' };
+const POSES: Record<'takeoff' | 'flight' | 'landing' | 'ground', Pose> = {
+  takeoff: { rot: -12, dy: -1.2, ground: 'runway' },
+  landing: { rot: 7, dy: -2.6, ground: 'runway' },
+  flight: { rot: 0, dy: -1 },
+  ground: { rot: 0, dy: 3, ground: 'taxiway' },
+};
+
+/** The plane in one pose, over a runway, a taxiway or nothing. */
+const PlaneMark = (props: { pose: Pose; class: string; width: number }) => (
+  <svg
+    class={`plane ${props.class}`}
+    viewBox="0 0 36 22"
+    width={props.width}
+    height={(props.width * 22) / 36}
+    aria-hidden="true"
+  >
+    {props.pose.ground === 'runway' ? (
+      <>
+        <path class="plane__strip" d="M0 19h36" />
+        <path class="plane__strip plane__centre" d="M2 20.8h32" />
+      </>
+    ) : props.pose.ground === 'taxiway' ? (
+      <path class="plane__strip" d="M2 19h32" />
+    ) : null}
+    <g class="plane__fly">
+      <g transform={`translate(0 ${props.pose.dy}) rotate(${props.pose.rot} 18 11)`}>
+        {PLANE_BODY}
+        {props.pose.ground ? PLANE_GEAR : null}
+      </g>
+    </g>
+  </svg>
+);
+
+const PhaseIcon = (props: { phase: Phase }) => {
+  if (props.phase === 'waiting')
+    return <MessageCircleQuestion class="phase phase--waiting" size={16} aria-hidden="true" />;
+  const pose =
+    props.phase === 'takeoff' || props.phase === 'landing'
+      ? POSES[props.phase]
+      : props.phase === 'flight' || props.phase === 'ontime'
+        ? POSES.flight
+        : POSES.ground;
+  return <PlaneMark pose={pose} class={`phase phase--${props.phase}`} width={40} />;
+};
 
 function repoOf(a: AgentView): string | undefined {
   return a.repo ?? a.project;
@@ -415,10 +524,12 @@ function AgentBoard(props: {
         a.agentId.localeCompare(b.agentId)
     );
 
+  const changes = useActivityChanges(props.agents, Date.now());
+  const waiting = rows.filter((a) => rank(a) === -1).length;
   const working = rows.filter((a) => rank(a) === 0).length;
   const stale = rows.filter((a) => rank(a) === 2).length;
   const idle = rows.filter((a) => rank(a) === 1 && a.activity === 'idle').length;
-  const unknown = rows.length - working - stale - idle; // agents without the signal yet
+  const unknown = rows.length - working - waiting - stale - idle; // agents without the signal yet
 
   if (props.agents.length === 0) {
     return (
@@ -441,6 +552,11 @@ function AgentBoard(props: {
         </h2>
         <Flap class="board__clock" cells={5} value={clock(now)} title="Local time" />
         <p class="board__counts">
+          {waiting > 0 && (
+            <span class="board__waiting">
+              <b>{waiting}</b> waiting on you ·{' '}
+            </span>
+          )}
           <b>{working}</b> in flight · <b>{idle}</b> at gate
           {unknown > 0 && (
             <>
@@ -479,14 +595,11 @@ function AgentBoard(props: {
             const isSelf = a.agentId === self;
             return (
               <tr
-                class={`row row--${a.kind} ${a.liveness === 'stale' ? 'row--stale' : ''} ${rank(a) === 0 ? 'row--working' : ''} ${props.selected === key ? 'row--on' : ''}`}
+                class={`row row--${a.kind} ${a.liveness === 'stale' ? 'row--stale' : ''} ${rank(a) === 0 ? 'row--working' : ''} ${rank(a) === -1 ? 'row--waiting' : ''} ${props.selected === key ? 'row--on' : ''}`}
                 onClick={() => !isSelf && props.onOpen(a)}
               >
                 <th scope="row" class="cell-agent">
-                  <span
-                    class={`kind kind--${a.kind}`}
-                    title={kindLabel[a.kind]}
-                  />
+                  <KindMark kind={a.kind} title={kindLabel[a.kind]} />
                   <span class="agent">
                     <button
                       class="agent__id"
@@ -522,11 +635,13 @@ function AgentBoard(props: {
                 </td>
                 <td class="cell-status">
                   {rank(a) === 0 ? <span class="boarding" aria-hidden="true" /> : null}
+                  {rank(a) === -1 ? <span class="boarding boarding--waiting" aria-hidden="true" /> : null}
+                  <PhaseIcon phase={phaseOf(a, changes.get(a.agentId), now)} />
                   <Flap
                     class="status"
                     cells={9}
-                    tone={statusOf(a).tone}
-                    value={statusOf(a).label}
+                    tone={phases[phaseOf(a, changes.get(a.agentId), now)].tone}
+                    value={phases[phaseOf(a, changes.get(a.agentId), now)].label}
                     pending={pending.has('liveness')}
                   />
                 </td>
@@ -595,9 +710,14 @@ function ThreadList(props: {
               class={`thread ${props.selected === t.key ? 'thread--on' : ''}`}
               onClick={() => props.onOpen(t.key)}
             >
-              <span
-                class={`kind kind--${t.ref.kind === 'dm' ? (props.state.agents[t.ref.agentId]?.kind ?? 'other') : 'room'}`}
-              />
+              {t.ref.kind === 'dm' ? (
+                <KindMark
+                  kind={props.state.agents[t.ref.agentId]?.kind ?? kindFromId(t.ref.agentId)}
+                  title={kindLabel[props.state.agents[t.ref.agentId]?.kind ?? kindFromId(t.ref.agentId)]}
+                />
+              ) : (
+                <KindMark kind="room" title="Room" />
+              )}
               <span class="thread__title">
                 {threadTitle(t, props.state.agents)}
               </span>
@@ -622,6 +742,105 @@ function ThreadList(props: {
   );
 }
 
+/** Keys offered for a terminal prompt: pick an option, move, confirm or back out. */
+const PROMPT_KEYS: { key: PaneKey; label: string }[] = [
+  { key: '1', label: '1' },
+  { key: '2', label: '2' },
+  { key: '3', label: '3' },
+  { key: 'up', label: '↑' },
+  { key: 'down', label: '↓' },
+  { key: 'enter', label: 'Enter' },
+  { key: 'esc', label: 'Esc' },
+];
+
+/**
+ * The agent's terminal, read through Rex, so a prompt it is blocked on can be
+ * answered from here: keys go straight to the pane, text is typed then Enter.
+ */
+function PanePrompt(props: { agentId: string; waiting: boolean }) {
+  const [screen, setScreen] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [text, setText] = useState('');
+  const [open, setOpen] = useState(props.waiting);
+  const pre = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    if (props.waiting) setOpen(true);
+  }, [props.waiting]);
+
+  async function refresh() {
+    try {
+      setScreen((await api.pane(props.agentId)).text);
+      setError(undefined);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    refresh();
+    const timer = setInterval(refresh, 2000);
+    return () => clearInterval(timer);
+  }, [open, props.agentId]);
+
+  useEffect(() => {
+    if (pre.current) pre.current.scrollTop = pre.current.scrollHeight;
+  }, [screen]);
+
+  async function type(input: { text?: string; keys?: PaneKey[] }) {
+    try {
+      await api.type(props.agentId, input);
+      setError(undefined);
+      setTimeout(refresh, 300);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  return (
+    <section class={`prompt ${props.waiting ? 'prompt--waiting' : ''}`} aria-label="Terminal">
+      <button type="button" class="prompt__head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <MessageCircleQuestion size={16} aria-hidden="true" />
+        {props.waiting ? 'Waiting on you: answer in its terminal' : 'Terminal'}
+      </button>
+      {open ? (
+        <>
+          <pre ref={pre} class="prompt__screen">{screen ?? 'Reading the terminal…'}</pre>
+          {error ? <p class="prompt__error">{error}</p> : null}
+          <div class="prompt__keys">
+            {PROMPT_KEYS.map((k) => (
+              <button type="button" class="btn btn--key" key={k.key} onClick={() => type({ keys: [k.key] })}>
+                {k.label}
+              </button>
+            ))}
+          </div>
+          <form
+            class="prompt__form field"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!text.trim()) return;
+              type({ text, keys: ['enter'] });
+              setText('');
+            }}
+          >
+            <input
+              class="input"
+              value={text}
+              onInput={(e) => setText(e.currentTarget.value)}
+              placeholder="Type an answer, sent with Enter"
+              aria-label="Answer"
+            />
+            <button type="submit" class="btn" disabled={!text.trim()}>
+              Send
+            </button>
+          </form>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 function Drawer(props: {
   threadKeyValue: string;
   state: BoardState;
@@ -639,6 +858,8 @@ function Drawer(props: {
   const messages = state.messages[key];
   const self = state.status?.self.agentId;
   const list = useRef<HTMLOListElement>(null);
+  const [confirming, setConfirming] = useState(false);
+  const canShutDown = !!peer?.pane && peer.activity === 'idle';
 
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight });
@@ -673,14 +894,39 @@ function Drawer(props: {
             <p class="drawer__task">{cleanTask(peer.task)}</p>
           ) : null}
         </div>
-        <button
-          class="btn btn--icon"
-          onClick={props.onClose}
-          aria-label="Close thread"
-        >
-          <X size={18} />
-        </button>
+        <div class="drawer__actions">
+          {canShutDown ? (
+            <button
+              class="btn btn--icon btn--danger"
+              onClick={() => setConfirming(true)}
+              aria-label="Shut down agent"
+              title="Shut down this idle agent"
+            >
+              <Power size={18} />
+            </button>
+          ) : null}
+          <button
+            class="btn btn--icon"
+            onClick={props.onClose}
+            aria-label="Close thread"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </header>
+      {confirming && peer ? (
+        <ShutDownDialog
+          agent={peer}
+          onCancel={() => setConfirming(false)}
+          onDone={() => {
+            setConfirming(false);
+            props.onClose();
+          }}
+        />
+      ) : null}
+      {peerId && peer?.pane ? (
+        <PanePrompt agentId={peerId} waiting={peer.activity === 'waiting'} />
+      ) : null}
       {peerId ? (
         <Split
           messages={
@@ -1061,6 +1307,11 @@ function HistoryBoard(props: {
               <tr class="row">
                 <td class="num">{clock(e.timestamp)}</td>
                 <td>
+                  {e.kind === 'join' || e.kind === 'back' ? (
+                    <PlaneMark pose={POSES.landing} class="phase phase--arrive" width={30} />
+                  ) : e.kind === 'leave' || e.kind === 'drop' ? (
+                    <PlaneMark pose={POSES.takeoff} class="phase phase--depart" width={30} />
+                  ) : null}
                   <span
                     class={`flap tag flap--${historyTone[e.kind] ?? 'default'}`}
                   >
@@ -1068,8 +1319,9 @@ function HistoryBoard(props: {
                   </span>
                 </td>
                 <th scope="row" class="cell-agent">
-                  <span
-                    class={`kind kind--${props.agents[e.agentId]?.kind ?? kindFromId(e.agentId)}`}
+                  <KindMark
+                    kind={props.agents[e.agentId]?.kind ?? kindFromId(e.agentId)}
+                    title={kindLabel[props.agents[e.agentId]?.kind ?? kindFromId(e.agentId)]}
                   />
                   <span class="agent">
                     <span class="agent__id">{e.agentId}</span>
@@ -1090,6 +1342,7 @@ function HistoryBoard(props: {
 function kindFromId(id: string): AgentView['kind'] {
   if (id.startsWith('claude-code-')) return 'claude';
   if (id.startsWith('pi-')) return 'pi';
+  if (id.startsWith('codex-')) return 'codex';
   if (id.startsWith('dashboard-')) return 'human';
   return 'other';
 }
@@ -1190,7 +1443,7 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
                 checked={tool === t}
                 onChange={() => setTool(t)}
               />
-              <span class={`kind kind--${t}`} />
+              <KindMark kind={t} title="" />
               {t === 'claude' ? 'Claude Code' : 'Pi'}
             </label>
           ))}
@@ -1264,6 +1517,59 @@ function SpawnDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+function ShutDownDialog(props: {
+  agent: AgentView;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const { agent } = props;
+
+  async function confirm() {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.shutDown(agent.agentId);
+      props.onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Shut down this agent?" onClose={props.onCancel}>
+      <div class="form">
+        <p>
+          <b>{agent.displayName}</b> ({agent.agentId})
+          {agent.host ? ` on ${agent.host}` : ''} is idle. Its terminal pane
+          will be closed and the agent stops. This cannot be undone.
+        </p>
+        {error ? (
+          <p class="error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div class="form__actions">
+          <button type="button" class="btn btn--ghost" onClick={props.onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn--danger-solid"
+            disabled={busy}
+            onClick={confirm}
+          >
+            <Power size={16} aria-hidden="true" />
+            {busy ? 'Shutting down' : 'Shut down'}
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }
