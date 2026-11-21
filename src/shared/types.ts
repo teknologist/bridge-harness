@@ -20,6 +20,9 @@ export interface RegistryEvent {
   timestamp: number;
 }
 
+/** In a turn, between turns, or blocked on a prompt only the user can answer. */
+export type Activity = "working" | "idle" | "waiting";
+
 export interface AgentPresence {
   agentId: string;
   displayName: string;
@@ -27,7 +30,9 @@ export interface AgentPresence {
   host?: string;
   repo?: string;
   branch?: string;
-  activity?: "working" | "idle";
+  activity?: Activity;
+  /** Rex block (terminal pane) the agent runs in, so a viewer can read and answer its prompts. */
+  pane?: string;
   task?: string;
   rooms: Set<string>;
   // Memorable DM handles this agent also answers to (from set_name).

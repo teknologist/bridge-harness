@@ -198,6 +198,17 @@ export function createFleet(
       const projects = [...new Set(agents.flatMap(agent => agent.project ? [agent.project] : []))].sort();
       return { status, agents, projects, threads: store.threads() };
     },
+    /** The agent's Rex pane, if it published one. */
+    pane(agentId: string): string | undefined {
+      return roster.resolve(agentId)?.pane;
+    },
+    /** The agent's pane and whether it sits idle between turns, the only state it may be shut down in. */
+    agent(agentId: string) {
+      return roster.resolve(agentId);
+    },
+    forget(agentId: string) {
+      roster.forget(agentId);
+    },
     transcript(agentId: string, before: number | undefined, limit: number) {
       return store.transcript(agentId, before, limit);
     },

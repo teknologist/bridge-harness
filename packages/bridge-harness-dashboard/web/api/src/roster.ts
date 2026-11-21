@@ -21,7 +21,7 @@ export class Roster {
   private view(agent: AgentPresence): AgentView {
     const { agentId, rooms, aliases } = agent;
     const kind = agentId.startsWith('claude-code-') ? 'claude'
-      : agentId.startsWith('pi-') ? 'pi' : agentId.startsWith('dashboard-') ? 'human' : 'other';
+      : agentId.startsWith('pi-') ? 'pi' : agentId.startsWith('codex-') ? 'codex' : agentId.startsWith('dashboard-') ? 'human' : 'other';
     return { ...agent, kind, rooms: [...rooms], aliases: [...aliases], liveness: this.stale.has(agentId) ? 'stale' : 'live' };
   }
 
@@ -31,6 +31,12 @@ export class Roster {
 
   resolve(target: string): AgentPresence | undefined {
     return this.agents.get(target) ?? [...this.agents.values()].find(agent => agent.aliases.has(target));
+  }
+
+  /** Drops an agent the dashboard shut down: a killed process never says goodbye. */
+  forget(agentId: string) {
+    const agent = this.resolve(agentId);
+    if (agent) this.remove(agent, 'leave');
   }
 
   private remove(agent: AgentPresence, kind: 'leave' | 'drop') {
@@ -74,6 +80,7 @@ export class Roster {
         branch: event.branch ?? previous?.branch,
         task: previous?.task,
         activity: previous?.activity,
+        pane: previous?.pane,
         aliases: new Set(event.aliases),
         rooms: event.type === 'here' ? new Set(event.rooms) : previous?.rooms ?? new Set(),
         joinedAt: previous?.joinedAt ?? now,

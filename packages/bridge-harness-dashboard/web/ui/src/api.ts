@@ -5,6 +5,8 @@ import type {
   SendResponse,
   ServerEvent,
   HostsResponse,
+  PaneInput,
+  PaneScreen,
   SpawnRequest,
   SpawnResponse,
   StateResponse,
@@ -57,6 +59,11 @@ export const api = {
     post<{ ok: true; project: string }>('/project', { project }),
   spawn: (req: SpawnRequest) => post<SpawnResponse>('/spawn', req),
   hosts: () => call<HostsResponse>('/hosts'),
+  pane: (agentId: string) => call<PaneScreen>(`/pane/${encodeURIComponent(agentId)}`),
+  type: (agentId: string, input: PaneInput) =>
+    post<{ ok: true }>(`/pane/${encodeURIComponent(agentId)}`, input),
+  shutDown: (agentId: string) =>
+    post<{ ok: true }>(`/pane/${encodeURIComponent(agentId)}/close`, {}),
 };
 
 const EVENT_TYPES: ServerEvent['type'][] = [

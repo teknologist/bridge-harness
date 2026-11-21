@@ -230,6 +230,35 @@ function setupTaskHook(): boolean {
   return true;
 }
 
+/** Hooks that flag the agent as waiting on the user (hooks/bridge-waiting.js). */
+export const WAITING_HOOKS: Array<{ event: string; matcher: string }> = [
+  { event: "Notification", matcher: "permission_prompt" },
+  { event: "PreToolUse", matcher: "AskUserQuestion|ExitPlanMode" },
+  { event: "PostToolUse", matcher: "*" },
+];
+
+function setupWaitingHook(): boolean {
+  const command = `node ${join(dirname(getHookScriptPath()), "bridge-waiting.js")}`;
+  const settings = readJson(SETTINGS_PATH) as {
+    hooks?: Record<string, Array<{ matcher?: string; hooks: Array<Record<string, unknown>> }>>;
+  };
+  settings.hooks = settings.hooks ?? {};
+  let added = false;
+  for (const { event, matcher } of WAITING_HOOKS) {
+    const groups = (settings.hooks[event] = settings.hooks[event] ?? []);
+    if (groups.some((g) => g.hooks?.some((h) => (h.command as string | undefined)?.includes("bridge-waiting")))) continue;
+    groups.push({ matcher, hooks: [{ type: "command", command }] });
+    added = true;
+  }
+  if (!added) {
+    warn("waiting hooks already configured — skipping");
+    return false;
+  }
+  writeJson(SETTINGS_PATH, settings);
+  success("waiting hooks configured in ~/.claude/settings.json (flags agents blocked on you)");
+  return true;
+}
+
 async function setupNats(): Promise<void> {
   if (!detectNatsInstalled()) {
     error("nats-server not found in PATH.\n");
@@ -281,6 +310,7 @@ async function main() {
   setupMcp();
   setupHook();
   setupTaskHook();
+  setupWaitingHook();
   setupSkill();
 
   log("\n✅ Setup complete! Restart Claude Code to activate the bridge.\n");

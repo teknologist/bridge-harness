@@ -435,7 +435,7 @@ export default function bridgeExtension(pi: ExtensionAPI) {
   function presencePayload() {
     const task = currentTask();
     lastSentTask = task;
-    return { agent: agentId, status: "active", project, host, ...getRepoInfo(), activity, task };
+    return { agent: agentId, status: "active", project, host, ...getRepoInfo(), activity, pane: process.env.REX_BLOCK || undefined, task };
   }
   // Working while a turn runs, idle after agent_end; published at once on change.
   let activity: "working" | "idle" = "idle";

@@ -1,4 +1,4 @@
-import type { AgentPresence } from "./types.js";
+import type { Activity, AgentPresence } from "./types.js";
 
 export interface PresenceEvent {
   agent: string;
@@ -9,7 +9,9 @@ export interface PresenceEvent {
   repo?: string;
   branch?: string;
   /** Whether the agent is in a turn right now; absent from agents that predate it. */
-  activity?: "working" | "idle";
+  activity?: Activity;
+  /** Rex block id of the agent's terminal pane; absent outside Rex. */
+  pane?: string;
   /** One-line summary of what the agent is doing; absent means none (clears a previous one). */
   task?: string;
 }
@@ -46,6 +48,7 @@ export function applyPresenceEvent(
     if (event.repo) existing.repo = event.repo;
     if (event.branch) existing.branch = event.branch;
     if (event.activity) existing.activity = event.activity;
+    if (event.pane) existing.pane = event.pane;
     existing.task = event.task;
     return true;
   }
@@ -60,6 +63,7 @@ export function applyPresenceEvent(
     repo: event.repo,
     branch: event.branch,
     activity: event.activity,
+    pane: event.pane,
     task: event.task,
     rooms: new Set(),
     aliases: new Set(),

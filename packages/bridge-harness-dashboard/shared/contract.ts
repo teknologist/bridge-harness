@@ -8,7 +8,7 @@
 /** How fresh an agent's last heartbeat is. Same thresholds as the Claude/Pi panes. */
 export type Liveness = 'live' | 'stale'; // live: < 60s since lastSeen; stale: 60s..5min. Dropped after 5min.
 
-export type AgentKind = 'claude' | 'pi' | 'human' | 'other'; // from the agentId prefix: claude-code-*, pi-*, dashboard-*
+export type AgentKind = 'claude' | 'pi' | 'codex' | 'human' | 'other'; // from the agentId prefix: claude-code-*, pi-*, codex-*, dashboard-*
 
 export interface AgentView {
   agentId: string;
@@ -17,7 +17,8 @@ export interface AgentView {
   project?: string; // bridge namespace = worktree folder name; may be a branch-like name
   repo?: string; // real repository name, shared by all its worktrees (older agents omit it)
   branch?: string;
-  activity?: 'working' | 'idle'; // in a turn right now; absent for agents that predate the signal
+  activity?: 'working' | 'idle' | 'waiting'; // in a turn, between turns, or blocked on a prompt for the user; absent for older agents
+  pane?: string; // Rex block id of the agent's terminal; lets the board read and answer its prompt
   host?: string;
   task?: string;
   rooms: string[];
@@ -167,6 +168,23 @@ export interface SpawnRequest {
 export interface HostsResponse {
   hosts: string[];
 }
+// ── GET /api/pane/:agentId → PaneScreen — the agent's terminal as text (Rex only) ──
+// ── POST /api/pane/:agentId  PaneInput → { ok } — type into it, as if at the keyboard ──
+// ── POST /api/pane/:agentId/close → { ok } — shut an idle agent down by closing its pane ──
+// 404 when the agent has no Rex pane, 502 when Rex cannot reach it, 409 (close only)
+// unless the agent is idle. A closed agent leaves the roster at once.
+export interface PaneScreen {
+  text: string; // last lines of screen + scrollback, trimmed
+  server?: string; // Rex host label when the pane lives on another machine
+}
+/** Text is typed first, then keys are pressed in order. Keys are a fixed set. */
+export interface PaneInput {
+  text?: string;
+  keys?: PaneKey[];
+}
+export const PANE_KEYS = ['enter', 'esc', 'up', 'down', 'left', 'right', 'tab', 'shift+tab', 'space', 'backspace', 'ctrl+c', '1', '2', '3', '4', '5', '6', '7', '8', '9'] as const;
+export type PaneKey = (typeof PANE_KEYS)[number];
+
 export interface SpawnResponse {
   spawned: boolean;
   detail: string;

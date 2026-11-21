@@ -73,7 +73,7 @@ function currentTask(): string | undefined {
 
 function presencePayload() {
   lastSentTask = currentTask();
-  return { agent: agentId, status: "active", project, host, ...getRepoInfo(), activity, task: lastSentTask };
+  return { agent: agentId, status: "active", project, host, ...getRepoInfo(), activity, pane: process.env.REX_BLOCK || undefined, task: lastSentTask };
 }
 
 function announceTaskIfChanged() {
@@ -101,13 +101,14 @@ function summariseWithPi(text: string): Promise<string | undefined> {
   });
 }
 
-// Written by hooks/activity.js (UserPromptSubmit/wake → working, Stop → idle).
+// Written by hooks/activity.js (UserPromptSubmit/wake → working, Stop → idle,
+// a permission prompt or question to the user → waiting, see hooks/bridge-waiting.js).
 const activityFile = join(tmpdir(), "bridge-harness", `activity-${agentId.replace(/[^\w.-]/g, "_")}.txt`);
-let activity: "working" | "idle" | undefined;
+let activity: "working" | "idle" | "waiting" | undefined;
 async function pollActivityFile() {
   try {
     const next = (await readFile(activityFile, "utf8")).trim();
-    if ((next !== "working" && next !== "idle") || next === activity) return;
+    if ((next !== "working" && next !== "idle" && next !== "waiting") || next === activity) return;
     activity = next;
     if (nc) nc.publish(subjects.presence(), encode(presencePayload()));
   } catch {

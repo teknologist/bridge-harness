@@ -28,3 +28,14 @@ it('preserves rooms and task on rename, then emits stale, back, and drop transit
   expect(emit).toHaveBeenLastCalledWith({ type: 'agent-drop', agentId: 'pi-1' });
   expect(record.mock.calls.map(([kind]) => kind)).toEqual(['join', 'room-join', 'task', 'rename', 'stale', 'back', 'room-leave', 'drop']);
 });
+
+it('forgets an agent the dashboard shut down, since a killed process never says goodbye', () => {
+  const emit = vi.fn();
+  const record = vi.fn();
+  const roster = new Roster('dashboard-1', emit, record);
+  roster.registry({ type: 'here', agentId: 'pi-1', displayName: 'Pi', rooms: ['lobby'], timestamp: 0 }, 0);
+  roster.forget('pi-1');
+  expect(roster.snapshot()).toEqual([]);
+  expect(emit).toHaveBeenLastCalledWith({ type: 'agent-drop', agentId: 'pi-1' });
+  expect(record.mock.calls.at(-1)?.[0]).toBe('leave');
+});

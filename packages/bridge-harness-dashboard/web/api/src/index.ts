@@ -5,10 +5,12 @@ import fastify from 'fastify';
 import { buildAgentCommand } from '../../../../../dist/spawn/command.js';
 import { rexBin, spawnAgentTab } from '../../../../../dist/spawn/spawn.js';
 import { execFileSync } from 'node:child_process';
-import type { HistoryResponse, HostsResponse, MessagesResponse, SelfRequest, SendRequest, ServerEvent, SpawnRequest, SpawnResponse, TranscriptResponse } from '../../../shared/contract.ts';
+import type { HistoryResponse, HostsResponse, MessagesResponse, PaneInput, PaneScreen, SelfRequest, SendRequest, ServerEvent, SpawnRequest, SpawnResponse, TranscriptResponse } from '../../../shared/contract.ts';
+import { PANE_KEYS } from '../../../shared/contract.ts';
 import { createFleet, subjectToken } from './fleet.ts';
 import { openHistory } from './history.ts';
 import { openMessageStore } from './messages.ts';
+import { createPanes, rexRunner } from './pane.ts';
 
 const SESSION = 'bh_session';
 const cookieAttributes = 'Path=/api; HttpOnly; SameSite=Strict';
@@ -110,6 +112,31 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
     } catch { return []; }
   };
   app.get('/hosts', async (): Promise<HostsResponse> => ({ hosts: rexHosts() }));
+  // The agent's terminal, to read and answer a prompt it is blocked on (see pane.ts).
+  const panes = createPanes(rexRunner(rexBin(process.env)), rexHosts);
+  app.get<{ Params: { agentId: string } }>('/pane/:agentId', async ({ params }, reply) => {
+    const block = fleet.pane(params.agentId);
+    if (!block) return reply.code(404).send({ error: 'this agent has no Rex pane' });
+    try { return (await panes.screen(block)) satisfies PaneScreen; } catch (err) { return reply.code(502).send({ error: (err as Error).message }); }
+  });
+  app.post<{ Params: { agentId: string }; Body: PaneInput }>('/pane/:agentId', body({
+    text: string(2_000, 1, '^[^\\p{Cc}]+$'), keys: { type: 'array', maxItems: 8, items: { enum: [...PANE_KEYS] } },
+  }), async ({ params, body }, reply) => {
+    const block = fleet.pane(params.agentId);
+    if (!block) return reply.code(404).send({ error: 'this agent has no Rex pane' });
+    if (!body.text && !body.keys?.length) return reply.code(400).send({ error: 'nothing to type' });
+    try { await panes.type(block, body.text, body.keys ?? []); return { ok: true }; } catch (err) { return reply.code(502).send({ error: (err as Error).message }); }
+  });
+  // Shuts down an idle agent by closing its pane. Refused while it works or waits on a
+  // prompt, so a stale board cannot kill an agent mid-turn.
+  app.post<{ Params: { agentId: string } }>('/pane/:agentId/close', async ({ params }, reply) => {
+    const agent = fleet.agent(params.agentId);
+    if (!agent?.pane) return reply.code(404).send({ error: 'this agent has no Rex pane' });
+    if (agent.activity !== 'idle') return reply.code(409).send({ error: 'only an idle agent can be shut down' });
+    try { await panes.close(agent.pane); } catch (err) { return reply.code(502).send({ error: (err as Error).message }); }
+    fleet.forget(agent.agentId);
+    return { ok: true };
+  });
   app.post<{ Body: SpawnRequest }>('/spawn', body({
     tool: { enum: ['pi', 'claude'] }, name: string(64, 1, '^[a-zA-Z0-9_-]+$'), task: string(4_096, 1, '^[^#\\p{Cc}\\p{Zl}\\p{Zp}]+$'),
     cwd: string(1_024, 0, '^[^\\p{Cc}]*$'), host: string(255, 0, '^[^\\p{Cc}]*$'),
