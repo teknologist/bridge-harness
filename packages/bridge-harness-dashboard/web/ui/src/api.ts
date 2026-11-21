@@ -8,6 +8,8 @@ import type {
   SpawnRequest,
   SpawnResponse,
   StateResponse,
+  TranscriptLine,
+  TranscriptResponse,
 } from '../../../shared/contract.ts';
 
 export class Unauthorized extends Error {}
@@ -43,6 +45,8 @@ export const api = {
     call<MessagesResponse>(
       `/threads/messages?key=${encodeURIComponent(key)}&limit=200${before ? `&before=${encodeURIComponent(before)}` : ''}`
     ),
+  transcript: (agentId: string) =>
+    call<TranscriptResponse>(`/transcript?agentId=${encodeURIComponent(agentId)}&limit=500`),
   markRead: (key: string) => post<{ ok: true }>('/threads/read', { key }),
   history: (since: number) =>
     call<HistoryResponse>(`/history?since=${since}&limit=1000`),
@@ -62,6 +66,7 @@ const EVENT_TYPES: ServerEvent['type'][] = [
   'message',
   'thread',
   'history',
+  'transcript',
 ];
 
 /**

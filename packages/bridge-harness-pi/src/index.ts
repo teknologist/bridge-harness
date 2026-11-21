@@ -7,9 +7,12 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import {
   cleanSummary,
   pickTask,
+  messageText,
   shareTaskEnabled,
+  shareTranscriptEnabled,
   TASK_SUMMARY_INPUT_CHARS,
   TASK_SUMMARY_SYSTEM_PROMPT,
+  TRANSCRIPT_TEXT_MAX,
   taskFromPrompt,
   taskModel,
 } from "./task.js";
@@ -230,6 +233,7 @@ function makeSubjects(project: string) {
     dm: (agentId: string) => `bridge.dm.${agentId}`,
     presence: () => `bridge.presence`,
     registry: () => `bridge.registry`,
+    transcript: (agentId: string) => `bridge.transcript.${agentId}`,
   };
 }
 
@@ -799,6 +803,22 @@ export default function bridgeExtension(pi: ExtensionAPI) {
         `Original error: ${err instanceof Error ? err.message : String(err)}`
       );
     }
+  });
+
+  // Live transcript: user prompts and assistant replies (text only) for the dashboard.
+  let transcriptSeq = 0;
+  pi.on("message_end", (event) => {
+    if (!nc || !shareTranscriptEnabled()) return;
+    const message = event.message as { role?: string; content?: unknown; timestamp?: number };
+    if (message.role !== "user" && message.role !== "assistant") return;
+    let text = messageText(message.content);
+    if (!text) return;
+    if (text.length > TRANSCRIPT_TEXT_MAX) text = text.slice(0, TRANSCRIPT_TEXT_MAX) + "…";
+    const timestamp = typeof message.timestamp === "number" ? message.timestamp : Date.now();
+    publish(
+      sub.transcript(agentId),
+      encode({ id: `${agentId}-${timestamp}-${transcriptSeq++}`, agentId, role: message.role, text, timestamp }),
+    );
   });
 
   pi.on("agent_end", () => {

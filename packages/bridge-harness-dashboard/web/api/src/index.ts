@@ -5,7 +5,7 @@ import fastify from 'fastify';
 import { buildAgentCommand } from '../../../../../dist/spawn/command.js';
 import { rexBin, spawnAgentTab } from '../../../../../dist/spawn/spawn.js';
 import { execFileSync } from 'node:child_process';
-import type { HistoryResponse, HostsResponse, MessagesResponse, SelfRequest, SendRequest, ServerEvent, SpawnRequest, SpawnResponse } from '../../../shared/contract.ts';
+import type { HistoryResponse, HostsResponse, MessagesResponse, SelfRequest, SendRequest, ServerEvent, SpawnRequest, SpawnResponse, TranscriptResponse } from '../../../shared/contract.ts';
 import { createFleet, subjectToken } from './fleet.ts';
 import { openHistory } from './history.ts';
 import { openMessageStore } from './messages.ts';
@@ -28,10 +28,10 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
   const expectedSession = Buffer.from(session);
   const app = fastify({ logger: true, ajv: { customOptions: { coerceTypes: false, removeAdditional: false } } });
   const dataDirectory = options.dataDirectory ?? process.env.BRIDGE_DASHBOARD_DATA ?? join(homedir(), '.bridge-harness');
-  // Pi agents launch through this command (space-separated argv, prompt appended).
-  const piLauncher = (process.env.BRIDGE_DASHBOARD_PI_CMD?.trim() || 'pi-profile nats').split(/\s+/);
   const history = await openHistory(dataDirectory);
   const retentionDays = Number(process.env.BRIDGE_DASHBOARD_RETENTION_DAYS) || 30;
+  // Pi agents launch through this command (space-separated argv, prompt appended).
+  const piLauncher = (process.env.BRIDGE_DASHBOARD_PI_CMD?.trim() || 'pi-profile nats').split(/\s+/);
   const store = openMessageStore(dataDirectory, retentionDays);
   const clients = new Set<(event?: ServerEvent) => void>();
   const fleet = createFleet(history, store, event => { for (const client of clients) client(event); }, message => app.log.warn(message), options.dial);
@@ -78,6 +78,9 @@ export async function create(options: { dial?: Parameters<typeof createFleet>[4]
   app.get<{ Querystring: { key: string; before?: string; limit?: string } }>('/threads/messages', {
     schema: { querystring: object({ key: string(520), before: string(32, 1, '^[0-9]+$'), limit: string(3, 1, '^[0-9]+$') }, ['key']) },
   }, async ({ query }): Promise<MessagesResponse> => fleet.messages(query.key, query.before, Math.max(1, Math.min(200, Number(query.limit ?? 200)))));
+  app.get<{ Querystring: { agentId: string; before?: string; limit?: string } }>('/transcript', {
+    schema: { querystring: object({ agentId: string(200), before: string(16, 1, '^[0-9]+$'), limit: string(3, 1, '^[0-9]+$') }, ['agentId']) },
+  }, async ({ query }): Promise<TranscriptResponse> => fleet.transcript(query.agentId, query.before === undefined ? undefined : Number(query.before), Math.max(1, Math.min(500, Number(query.limit ?? 200)))));
   app.post<{ Body: { key: string } }>('/threads/read', body({ key: string(520) }, ['key']), async ({ body }) => {
     fleet.read(body.key);
     return { ok: true };

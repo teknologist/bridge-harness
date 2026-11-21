@@ -4,6 +4,7 @@
 // Like bridge-rewake, the hook and the MCP server share a parent Claude Code process,
 // so process.ppid gives the same agentId in both. The file never leaves this machine;
 // only the summarised label goes on the bus. BRIDGE_SHARE_TASK=0 turns it all off.
+// It also records the session transcript path (BRIDGE_SHARE_TRANSCRIPT=0 turns that off).
 import { hookAgentId } from "./claude-pid.js";
 import { writeActivity } from "./activity.js";
 import { mkdirSync, writeFileSync, chmodSync } from "node:fs";
@@ -12,22 +13,32 @@ import { join } from "node:path";
 
 writeActivity(hookAgentId(), "working");
 
-const share = (process.env.BRIDGE_SHARE_TASK ?? "").trim().toLowerCase();
-if (["0", "false", "no", "off"].includes(share)) process.exit(0);
+const off = (name) => ["0", "false", "no", "off"].includes((process.env[name] ?? "").trim().toLowerCase());
+const shareTask = !off("BRIDGE_SHARE_TASK");
+// The MCP server tails this session's transcript file to stream the live conversation.
+const shareTranscript = !off("BRIDGE_SHARE_TRANSCRIPT");
+if (!shareTask && !shareTranscript) process.exit(0);
+
+function writePrivate(name, text) {
+  const dir = join(tmpdir(), "bridge-harness");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const file = join(dir, `${name}-${hookAgentId().replace(/[^\w.-]/g, "_")}.txt`);
+  writeFileSync(file, text, { mode: 0o600 });
+  chmodSync(file, 0o600);
+}
 
 let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (c) => (input += c));
 process.stdin.on("end", () => {
   try {
-    const { prompt } = JSON.parse(input);
-    if (typeof prompt !== "string" || !prompt.trim()) return;
-    const agentId = hookAgentId();
-    const dir = join(tmpdir(), "bridge-harness");
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const file = join(dir, `task-${agentId.replace(/[^\w.-]/g, "_")}.txt`);
-    writeFileSync(file, prompt.slice(0, 2000), { mode: 0o600 });
-    chmodSync(file, 0o600);
+    const { prompt, transcript_path: transcriptPath } = JSON.parse(input);
+    if (shareTranscript && typeof transcriptPath === "string" && transcriptPath) {
+      writePrivate("transcript", transcriptPath);
+    }
+    if (shareTask && typeof prompt === "string" && prompt.trim()) {
+      writePrivate("task", prompt.slice(0, 2000));
+    }
   } catch {
     // Never block or disturb the prompt: the task line is best-effort.
   }

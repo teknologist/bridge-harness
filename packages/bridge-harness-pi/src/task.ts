@@ -12,6 +12,26 @@ export function shareTaskEnabled(env: Record<string, string | undefined> = proce
   return !(v === "0" || v === "false" || v === "no" || v === "off");
 }
 
+/** BRIDGE_SHARE_TRANSCRIPT=0|false|no|off keeps this agent's conversation off the bridge. */
+export function shareTranscriptEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  const v = env.BRIDGE_SHARE_TRANSCRIPT?.trim().toLowerCase();
+  return !(v === "0" || v === "false" || v === "no" || v === "off");
+}
+
+/** Transcript lines longer than this are cut (matches src/shared/transcript.ts). */
+export const TRANSCRIPT_TEXT_MAX = 8000;
+
+/** Text blocks of a Pi message; thinking, tool calls and images are dropped. */
+export function messageText(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((b): b is { type: "text"; text: string } => !!b && b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join("\n\n")
+    .trim();
+}
+
 /** First non-empty line, whitespace collapsed, capped at TASK_MAX_CHARS with an ellipsis. */
 export function clipTask(text: string | undefined): string | undefined {
   if (!text) return undefined;

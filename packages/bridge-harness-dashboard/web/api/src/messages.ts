@@ -7,7 +7,12 @@ import type {
   ThreadKey,
   ThreadRef,
   ThreadSummary,
+  TranscriptLine,
+  TranscriptResponse,
 } from '../../../shared/contract.ts';
+
+/** Lines kept per agent: enough to see what it was just doing, small enough to page instantly. */
+export const TRANSCRIPT_KEEP = 500;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -34,6 +39,9 @@ export interface MessageStore {
   ): MessagesResponse;
   threads(): ThreadSummary[];
   markRead(key: string): ThreadSummary | undefined;
+  /** Stores a transcript line once; false when it was already stored (agent restarts replay the tail). */
+  insertTranscript(line: TranscriptLine): boolean;
+  transcript(agentId: string, before: number | undefined, limit: number): TranscriptResponse;
   prune(now?: number): void;
   close(): void;
 }
@@ -68,7 +76,27 @@ export function openMessageStore(
     );
     CREATE INDEX IF NOT EXISTS thread_messages_page ON thread_messages (thread, timestamp, message);
     CREATE INDEX IF NOT EXISTS messages_age ON messages (timestamp);
+    CREATE TABLE IF NOT EXISTS transcript (
+      agent TEXT NOT NULL,
+      id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      text TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      PRIMARY KEY (agent, id)
+    );
+    CREATE INDEX IF NOT EXISTS transcript_page ON transcript (agent, timestamp);
   `);
+
+  const insertLine = db.prepare(
+    'INSERT OR IGNORE INTO transcript (agent, id, role, text, timestamp) VALUES (?, ?, ?, ?, ?)'
+  );
+  const trimLines = db.prepare(`
+    DELETE FROM transcript WHERE agent = ? AND rowid NOT IN (
+      SELECT rowid FROM transcript WHERE agent = ? ORDER BY timestamp DESC, rowid DESC LIMIT ?)`);
+  const linePage = db.prepare(`
+    SELECT id, role, text, timestamp FROM transcript
+    WHERE agent = ? AND timestamp < ? ORDER BY timestamp DESC, rowid DESC LIMIT ?`);
+  const deleteOldLines = db.prepare('DELETE FROM transcript WHERE timestamp < ?');
 
   const insertMessage = db.prepare(
     'INSERT OR IGNORE INTO messages (sender, recipient, content, timestamp) VALUES (?, ?, ?, ?)'
@@ -209,8 +237,26 @@ export function openMessageStore(
       const row = summaryOf.get(key) as SummaryRow | undefined;
       return row ? summary(row) : undefined;
     },
+    insertTranscript(line) {
+      const added =
+        insertLine.run(line.agentId, line.id, line.role, line.text, line.timestamp).changes > 0;
+      if (added) trimLines.run(line.agentId, line.agentId, TRANSCRIPT_KEEP);
+      return added;
+    },
+    transcript(agentId, before, limit) {
+      const rows = linePage.all(agentId, before ?? Number.MAX_SAFE_INTEGER, limit + 1) as Array<
+        Pick<TranscriptLine, 'id' | 'role' | 'text' | 'timestamp'>
+      >;
+      const hasMore = rows.length > limit;
+      const lines = rows
+        .slice(0, limit)
+        .reverse()
+        .map((row) => ({ ...row, agentId }));
+      return { lines, hasMore };
+    },
     prune(now = Date.now()) {
       transaction(() => {
+        deleteOldLines.run(now - retentionDays * DAY_MS);
         deleteOld.run(now - retentionDays * DAY_MS);
         deleteEmpty.run();
         fixUnread.run();

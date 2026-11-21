@@ -32,6 +32,8 @@ import { readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnAgentTab } from "../spawn/spawn.js";
+import { createTranscriptTail } from "./transcript-tail.js";
+import { shareTranscriptEnabled } from "../shared/transcript.js";
 
 
 interface InboxMessage {
@@ -639,6 +641,13 @@ async function main() {
   }, 30_000);
   setInterval(() => void pollTaskFile(), 3_000).unref?.();
   setInterval(() => void pollActivityFile(), 1_000).unref?.();
+  if (shareTranscriptEnabled()) {
+    const pathFile = join(tmpdir(), "bridge-harness", `transcript-${agentId.replace(/[^\w.-]/g, "_")}.txt`);
+    const tail = createTranscriptTail(pathFile, agentId, (line) => {
+      nc.publish(subjects.transcript(agentId), encode(line));
+    });
+    setInterval(() => void tail.poll(), 1_000).unref?.();
+  }
 
   let cleanedUp = false;
   function cleanup() {

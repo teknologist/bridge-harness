@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { openMessageStore } from '../src/messages.ts';
+import { openMessageStore, TRANSCRIPT_KEEP } from '../src/messages.ts';
 
 const dirs: string[] = [];
 const tempDir = () => {
@@ -94,6 +94,28 @@ describe('message store', () => {
       messageCount: 1,
       unread: 1,
     });
+    store.close();
+  });
+
+  // Agents replay their recent tail on restart; the pane must not show lines twice,
+  // and one chatty agent must not grow the database without bound.
+  it('stores transcript lines once and keeps only the newest per agent', () => {
+    const store = openMessageStore(tempDir(), 30);
+    const line = (n: number, agentId = 'claude-code-a') => ({
+      id: `l${n}`, agentId, role: 'assistant' as const, text: `line ${n}`, timestamp: 1_000 + n,
+    });
+    expect(store.insertTranscript(line(1))).toBe(true);
+    expect(store.insertTranscript(line(1))).toBe(false);
+    for (let n = 2; n <= TRANSCRIPT_KEEP + 5; n++) store.insertTranscript(line(n));
+    store.insertTranscript(line(1, 'pi-b'));
+    const page = store.transcript('claude-code-a', undefined, 1000);
+    expect(page.lines).toHaveLength(TRANSCRIPT_KEEP);
+    expect(page.lines.at(0)?.id).toBe('l6');
+    expect(page.lines.at(-1)?.id).toBe(`l${TRANSCRIPT_KEEP + 5}`);
+    expect(store.transcript('pi-b', undefined, 10).lines.map((l) => l.text)).toEqual(['line 1']);
+    const older = store.transcript('claude-code-a', 1_000 + 10, 3);
+    expect(older).toEqual({ lines: expect.any(Array), hasMore: true });
+    expect(older.lines.map((l) => l.id)).toEqual(['l7', 'l8', 'l9']);
     store.close();
   });
 });

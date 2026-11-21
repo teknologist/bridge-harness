@@ -5,6 +5,7 @@ import {
   LogOut,
   MessagesSquare,
   Pencil,
+  PlaneTakeoff,
   Plus,
   Rows3,
   SendHorizontal,
@@ -15,6 +16,7 @@ import type {
   ChatMessage,
   HistoryEvent,
   ThreadSummary,
+  TranscriptLine,
 } from '../../../shared/contract.ts';
 import { threadKey } from '../../../shared/contract.ts';
 import { api } from './api.ts';
@@ -182,7 +184,9 @@ function Shell({ board }: { board: Board }) {
   const down = !state.streamUp || !status?.connected;
 
   return (
-    <div class={`shell ${open ? 'shell--drawer' : ''}`}>
+    <div
+      class={`shell ${open ? 'shell--drawer' : ''} ${open?.startsWith('dm:') ? 'shell--split' : ''}`}
+    >
       <header class="topbar">
         <div class="topbar__brand">
           <span class="brand">Bridge board</span>
@@ -284,6 +288,7 @@ function Shell({ board }: { board: Board }) {
             state={state}
             now={now}
             onClose={() => setOpen(undefined)}
+            onTranscript={board.openTranscript}
           />
         ) : null}
       </main>
@@ -344,10 +349,10 @@ function rank(a: AgentView): number {
 }
 
 function statusOf(a: AgentView): { label: string; tone: 'live' | 'stale' | 'muted' } {
-  if (a.liveness === 'stale') return { label: 'STALE', tone: 'stale' };
-  if (a.activity === 'working') return { label: 'WORKING', tone: 'live' };
-  if (a.activity === 'idle') return { label: 'IDLE', tone: 'muted' };
-  return { label: 'LIVE', tone: 'muted' }; // agent predates the activity signal
+  if (a.liveness === 'stale') return { label: 'DELAYED', tone: 'stale' };
+  if (a.activity === 'working') return { label: 'IN FLIGHT', tone: 'live' };
+  if (a.activity === 'idle') return { label: 'AT GATE', tone: 'muted' };
+  return { label: 'ON TIME', tone: 'muted' }; // agent predates the activity signal
 }
 
 function repoOf(a: AgentView): string | undefined {
@@ -430,16 +435,20 @@ function AgentBoard(props: {
   return (
     <section class="board" aria-label="Agents">
       <div class="board__head">
-        <h2 class="board__title">Departures</h2>
+        <h2 class="board__title">
+          <PlaneTakeoff size={22} aria-hidden="true" />
+          Departures
+        </h2>
+        <Flap class="board__clock" cells={5} value={clock(now)} title="Local time" />
         <p class="board__counts">
-          <b>{working}</b> working · <b>{idle}</b> idle
+          <b>{working}</b> in flight · <b>{idle}</b> at gate
           {unknown > 0 && (
             <>
               {' '}
-              · <b>{unknown}</b> live
+              · <b>{unknown}</b> on time
             </>
           )}{' '}
-          · <b>{stale}</b> stale
+          · <b>{stale}</b> delayed
         </p>
       </div>
       <table class="rows">
@@ -508,10 +517,14 @@ function AgentBoard(props: {
                     pending={pending.has('task')}
                   />
                 </td>
-                <td class="num cell-seen">{ago(a.lastSeen, now)}</td>
-                <td>
+                <td class="num cell-seen">
+                  <Flap class="seen" still value={ago(a.lastSeen, now)} />
+                </td>
+                <td class="cell-status">
+                  {rank(a) === 0 ? <span class="boarding" aria-hidden="true" /> : null}
                   <Flap
                     class="status"
+                    cells={9}
                     tone={statusOf(a).tone}
                     value={statusOf(a).label}
                     pending={pending.has('liveness')}
@@ -522,6 +535,7 @@ function AgentBoard(props: {
                     <Flap
                       class="mail"
                       tone="mail"
+                      cells={2}
                       value={String(unread)}
                       pending={pending.has('mail')}
                     />
@@ -613,6 +627,7 @@ function Drawer(props: {
   state: BoardState;
   now: number;
   onClose: () => void;
+  onTranscript: (agentId: string) => Promise<void>;
 }) {
   const { state } = props;
   const key = props.threadKeyValue;
@@ -666,21 +681,197 @@ function Drawer(props: {
           <X size={18} />
         </button>
       </header>
-      <ol class="messages" ref={list}>
-        {messages === undefined ? (
-          <li class="muted">Loading the thread</li>
-        ) : messages.length === 0 ? (
-          <li class="muted messages__empty">
-            {isDm
-              ? 'No messages with this agent yet. Say something below.'
-              : 'Nothing posted since the dashboard joined.'}
-          </li>
-        ) : (
-          messages.map((m) => <Message m={m} mine={m.from === self} />)
-        )}
-      </ol>
-      <Composer to={to} disabled={!state.status?.connected} />
+      {peerId ? (
+        <Split
+          messages={
+            <section class="pane" aria-label="Messages">
+              <h3 class="pane__head">
+                Messages <span class="pane__n">{messages?.length ?? 0}</span>
+              </h3>
+              <ol class="messages" ref={list}>
+                {messages === undefined ? (
+                  <li class="muted">Loading the thread</li>
+                ) : messages.length === 0 ? (
+                  <li class="muted messages__empty">
+                    {isDm
+                      ? 'No messages with this agent yet. Say something below.'
+                      : 'Nothing posted since the dashboard joined.'}
+                  </li>
+                ) : (
+                  messages.map((m) => <Message m={m} mine={m.from === self} />)
+                )}
+              </ol>
+              <Composer to={to} disabled={!state.status?.connected} />
+            </section>
+          }
+          transcript={
+            <section class="pane pane--term" aria-label="Transcript">
+              <h3 class="pane__head">
+                Transcript{' '}
+                <span class="pane__n">{state.transcripts[peerId]?.length ?? 0}</span>
+                {peer?.liveness === 'live' ? <span class="pane__live">live</span> : null}
+              </h3>
+              <Transcript
+                agentId={peerId}
+                lines={state.transcripts[peerId]}
+                onOpen={props.onTranscript}
+              />
+            </section>
+          }
+        />
+      ) : (
+        <>
+          <ol class="messages" ref={list}>
+            {messages === undefined ? (
+              <li class="muted">Loading the thread</li>
+            ) : messages.length === 0 ? (
+              <li class="muted messages__empty">
+                {isDm
+                  ? 'No messages with this agent yet. Say something below.'
+                  : 'Nothing posted since the dashboard joined.'}
+              </li>
+            ) : (
+              messages.map((m) => <Message m={m} mine={m.from === self} />)
+            )}
+          </ol>
+          <Composer to={to} disabled={!state.status?.connected} />
+        </>
+      )}
     </aside>
+  );
+}
+
+const SPLIT_KEY = 'bridge.split';
+
+function readSplit(): number {
+  try {
+    const v = Number(localStorage.getItem(SPLIT_KEY));
+    return v >= 20 && v <= 80 ? v : 50;
+  } catch {
+    return 50;
+  }
+}
+
+/**
+ * Messages and transcript at once: side by side when the drawer is wide, stacked
+ * with a draggable divider when it is not. The divider position is remembered.
+ */
+function Split(props: { messages: JSX.Element; transcript: JSX.Element }) {
+  const [at, setAt] = useState(readSplit);
+  const box = useRef<HTMLDivElement>(null);
+
+  const set = (v: number) => {
+    const next = Math.round(Math.min(80, Math.max(20, v)));
+    setAt(next);
+    try {
+      localStorage.setItem(SPLIT_KEY, String(next));
+    } catch {
+      /* private mode: the split just isn't remembered */
+    }
+  };
+
+  const drag = (e: PointerEvent) => {
+    const el = box.current;
+    if (!el) return;
+    const grip = e.currentTarget as HTMLElement;
+    grip.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      const r = el.getBoundingClientRect();
+      set(((ev.clientY - r.top) / r.height) * 100);
+    };
+    const up = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', up);
+      grip.removeEventListener('pointercancel', up);
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', up);
+  };
+
+  return (
+    <div class="split" ref={box} style={{ '--split-at': `${at}%` }}>
+      {props.transcript}
+      <div
+        class="split__grip"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize transcript and messages"
+        aria-valuemin={20}
+        aria-valuemax={80}
+        aria-valuenow={at}
+        tabIndex={0}
+        onPointerDown={drag}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp') set(at - 5);
+          else if (e.key === 'ArrowDown') set(at + 5);
+          else return;
+          e.preventDefault();
+        }}
+      />
+      {props.messages}
+    </div>
+  );
+}
+
+function Transcript(props: {
+  agentId: string;
+  lines: TranscriptLine[] | undefined;
+  onOpen: (agentId: string) => Promise<void>;
+}) {
+  const { lines } = props;
+  const box = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string>();
+  const pinned = useRef(true);
+
+  useEffect(() => {
+    props.onOpen(props.agentId).catch((e: unknown) =>
+      setError(e instanceof Error ? e.message : String(e))
+    );
+  }, [props.agentId]);
+
+  // Follow the tail like a terminal, unless the reader scrolled up.
+  useEffect(() => {
+    const el = box.current;
+    if (el && pinned.current) el.scrollTo({ top: el.scrollHeight });
+  }, [lines?.length]);
+
+  return (
+    <div
+      class="term"
+      ref={box}
+      role="log"
+      aria-live="polite"
+      aria-label={`Live transcript of ${props.agentId}`}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      }}
+    >
+      {error ? (
+        <p class="term__note term__note--err">Could not load the transcript: {error}</p>
+      ) : lines === undefined ? (
+        <p class="term__note">Loading the transcript</p>
+      ) : lines.length === 0 ? (
+        <p class="term__note">
+          Nothing yet. Lines appear here as this agent talks. Agents started before
+          0.3.34, or with BRIDGE_SHARE_TRANSCRIPT=0, do not share theirs.
+        </p>
+      ) : (
+        <>
+          {lines.map((l) => (
+            <div class={`term__line term__line--${l.role}`}>
+              <span class="term__mark" aria-hidden="true">{l.role === 'user' ? '›' : '•'}</span>
+              <span class="term__text">{l.text}</span>
+              <time class="term__time" dateTime={new Date(l.timestamp).toISOString()}>
+                {clock(l.timestamp)}
+              </time>
+            </div>
+          ))}
+          <span class="term__cursor" aria-hidden="true" />
+        </>
+      )}
+    </div>
   );
 }
 

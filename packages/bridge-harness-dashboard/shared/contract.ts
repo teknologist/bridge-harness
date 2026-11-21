@@ -105,6 +105,23 @@ export interface MessagesResponse {
 
 // ── POST /api/threads/read  { key } → { ok: true } ─────────────────────────────
 
+// ── GET /api/transcript?agentId=<id>&before=<timestamp>&limit=<n≤500> ─────────
+// The agent's own conversation (user prompts + assistant replies, no tool calls),
+// streamed on bridge.transcript.<agentId>. Newest last; the last 500 lines per agent
+// are kept for the message retention period.
+export interface TranscriptLine {
+  id: string;
+  agentId: string;
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: number;
+}
+
+export interface TranscriptResponse {
+  lines: TranscriptLine[];
+  hasMore: boolean;
+}
+
 // ── GET /api/history?since=<ms>&agentId=<id>&limit=<n≤1000> ───────────────────
 // Newest last. Kept in memory and appended to a JSONL file (BRIDGE_DASHBOARD_DATA dir).
 export interface HistoryResponse {
@@ -168,7 +185,8 @@ export type ServerEvent =
   | { type: 'agent-drop'; agentId: string }
   | { type: 'message'; message: ChatMessage }
   | { type: 'thread'; thread: ThreadSummary } // counts / unread changed
-  | { type: 'history'; event: HistoryEvent };
+  | { type: 'history'; event: HistoryEvent }
+  | { type: 'transcript'; line: TranscriptLine };
 
 export interface ErrorResponse {
   error: string;

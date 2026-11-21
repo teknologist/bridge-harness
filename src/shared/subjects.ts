@@ -7,6 +7,9 @@ export const subjects = {
   room: (project: string, room: string) => `bridge.${project}.room.${room}`,
   roomWildcard: (project: string) => `bridge.${project}.room.*`,
   dm: (agentId: string) => `bridge.dm.${agentId}`,
+  // Live conversation lines (user prompts + assistant replies), one subject per agent.
+  transcript: (agentId: string) => `bridge.transcript.${agentId}`,
+  transcriptWildcard: () => `bridge.transcript.*`,
   presence: () => `bridge.presence`,
   registry: () => `bridge.registry`,
   system: () => `bridge.system`,

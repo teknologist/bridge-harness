@@ -5,7 +5,7 @@ import { subjects } from '../../../../../dist/shared/subjects.js';
 import { DM_STREAM, ensureDmStream } from '../../../../../dist/shared/jetstream.js';
 import type { PresenceEvent } from '../../../../../dist/shared/presence.js';
 import type { RegistryEvent } from '../../../../../dist/shared/types.js';
-import type { BridgeStatus, ChatMessage, SendResponse, ServerEvent, StateResponse, ThreadRef } from '../../../shared/contract.ts';
+import type { BridgeStatus, ChatMessage, SendResponse, ServerEvent, StateResponse, ThreadRef, TranscriptLine } from '../../../shared/contract.ts';
 import { Roster } from './roster.ts';
 import type { MessageStore } from './messages.ts';
 import type { openHistory } from './history.ts';
@@ -91,6 +91,15 @@ export function createFleet(
     if (!project || !name) return;
     append([{ kind: 'room', project, room: name }], `room:${name}`, readMessage(data));
   }
+  function transcriptLine(data: Uint8Array, subject: string) {
+    const agent = subject.slice('bridge.transcript.'.length);
+    const line = codec.decode(data) as Partial<TranscriptLine>;
+    if (!tokenPattern.test(agent) || (line?.role !== 'user' && line?.role !== 'assistant')) return;
+    if (typeof line.id !== 'string' || typeof line.text !== 'string' || !Number.isFinite(line.timestamp)) return;
+    // The subject names the speaker; never trust a payload claiming to be someone else.
+    const stored = { id: line.id.slice(0, 200), agentId: agent, role: line.role, text: line.text.slice(0, 8000), timestamp: line.timestamp as number };
+    if (store.insertTranscript(stored)) emit({ type: 'transcript', line: stored });
+  }
   function subscribeRoom(connection: Connection) {
     if (!watchAll) room = subscribe(connection, subjects.room(self.project, self.project), roomMessage);
   }
@@ -153,6 +162,7 @@ export function createFleet(
           subscribe(connection, subjects.dm('*'), dm);
           subscribe(connection, 'bridge.*.room.*', roomMessage);
         } else for (const id of [agentId, ...aliases]) subscribe(connection, subjects.dm(id), dm);
+        subscribe(connection, 'bridge.transcript.*', transcriptLine);
         subscribeRoom(connection);
         void watch(connection).catch(() => statusChanged(false, 'NATS status unavailable'));
         announce();
@@ -187,6 +197,9 @@ export function createFleet(
       const agents = roster.snapshot();
       const projects = [...new Set(agents.flatMap(agent => agent.project ? [agent.project] : []))].sort();
       return { status, agents, projects, threads: store.threads() };
+    },
+    transcript(agentId: string, before: number | undefined, limit: number) {
+      return store.transcript(agentId, before, limit);
     },
     messages(key: string, before: string | undefined, limit: number) {
       return store.page(key, before, limit);

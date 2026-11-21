@@ -7,6 +7,8 @@ import type {
   ServerEvent,
   StateResponse,
   ThreadSummary,
+  TranscriptLine,
+  TranscriptResponse,
 } from '../../../shared/contract.ts';
 import { api, subscribe, Unauthorized } from './api.ts';
 
@@ -21,6 +23,8 @@ export interface BoardState {
   threads: Record<string, ThreadSummary>;
   messages: Record<string, ChatMessage[]>;
   history: HistoryEvent[];
+  /** agentId → transcript lines, only for agents whose transcript was opened. */
+  transcripts: Record<string, TranscriptLine[]>;
   /** agentId → fields that changed since the operator last opened that row. */
   unseen: Record<string, FlapField[]>;
   loadError?: string;
@@ -33,6 +37,7 @@ type Action =
   | { t: 'stream'; up: boolean }
   | { t: 'messages'; key: string; messages: ChatMessage[] }
   | { t: 'history'; events: HistoryEvent[] }
+  | { t: 'transcript'; agentId: string; lines: TranscriptLine[] }
   | { t: 'seen'; agentId: string }
   | { t: 'error'; message?: string };
 
@@ -43,6 +48,7 @@ const initial: BoardState = {
   threads: {},
   messages: {},
   history: [],
+  transcripts: {},
   unseen: {},
 };
 
@@ -89,6 +95,8 @@ function reduce(s: BoardState, a: Action): BoardState {
       return { ...s, messages: { ...s.messages, [a.key]: a.messages } };
     case 'history':
       return { ...s, history: a.events };
+    case 'transcript':
+      return { ...s, transcripts: { ...s.transcripts, [a.agentId]: a.lines } };
     case 'seen': {
       if (!s.unseen[a.agentId]) return s;
       const { [a.agentId]: _drop, ...rest } = s.unseen;
@@ -142,6 +150,17 @@ function reduce(s: BoardState, a: Action): BoardState {
           return { ...s, threads: { ...s.threads, [e.thread.key]: e.thread } };
         case 'history':
           return { ...s, history: [...s.history, e.event].slice(-2000) };
+        case 'transcript': {
+          const lines = s.transcripts[e.line.agentId];
+          if (!lines || lines.some((l) => l.id === e.line.id)) return s;
+          return {
+            ...s,
+            transcripts: {
+              ...s.transcripts,
+              [e.line.agentId]: [...lines, e.line].slice(-500),
+            },
+          };
+        }
       }
     }
   }
@@ -200,6 +219,11 @@ export function useBoard() {
     void api.markRead(key).catch(() => undefined);
   }, []);
 
+  const openTranscript = useCallback(async (agentId: string) => {
+    const res = await api.transcript(agentId);
+    dispatch({ t: 'transcript', agentId, lines: res.lines });
+  }, []);
+
   const markSeen = useCallback(
     (agentId: string) => dispatch({ t: 'seen', agentId }),
     []
@@ -220,5 +244,5 @@ export function useBoard() {
     dispatch({ t: 'auth', auth: 'needed' });
   }, []);
 
-  return { state, openThread, markSeen, login, logout, reload: load };
+  return { state, openThread, openTranscript, markSeen, login, logout, reload: load };
 }
