@@ -798,33 +798,118 @@ button {
   display: inline-flex;
   gap: 2px;
 }
-.flap__tile {
+/* One hinged split-flap card: two halves, and while turning a top leaf that falls
+   over the hinge and a bottom leaf that lands with a small bounce (flap.tsx). */
+.tile {
+  --flip: 200ms;
   position: relative;
-  display: inline-grid;
-  place-items: center;
+  display: inline-block;
   width: 1em;
   height: 1.75em;
   border-radius: 2px;
-  background: linear-gradient(to bottom, #24282e 0 50%, #1b1e23 50% 100%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 1px 0 #050506;
-  font: 700 16px/1 var(--board);
+  font: 700 16px/1.75em var(--board);
   text-transform: uppercase;
   white-space: pre;
-  transform-origin: 50% 50%;
+  perspective: 7em;
+  box-shadow: 0 1px 0 #000, 0 2px 3px rgb(0 0 0 / 0.5);
 }
-.flap__tile::after {
+.tile__half {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50%;
+  overflow: hidden;
+  backface-visibility: hidden;
+  text-align: center;
+}
+.tile__half > span {
+  display: block;
+  height: 200%;
+}
+.tile__top,
+.tile__leaf-top {
+  top: 0;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(#2b3036, #262a30);
+  border-bottom: 0.5px solid rgb(0 0 0 / 0.6);
+}
+.tile__bottom,
+.tile__leaf-bot {
+  bottom: 0;
+  border-radius: 0 0 2px 2px;
+  background: linear-gradient(#1d2025, #191b20);
+}
+.tile__bottom > span,
+.tile__leaf-bot > span {
+  transform: translateY(-50%);
+}
+.tile__leaf-top {
+  z-index: 2;
+  transform-origin: 50% 100%;
+  animation: leaf-fall var(--flip) cubic-bezier(0.55, 0, 1, 0.45) both;
+}
+.tile__leaf-bot {
+  z-index: 3;
+  transform-origin: 50% 0;
+  animation: leaf-land calc(var(--flip) * 1.6) linear var(--flip) both;
+}
+.tile__leaf-top::after,
+.tile__leaf-bot::after {
   content: '';
   position: absolute;
-  inset: calc(50% - 0.5px) 0 auto;
-  height: 1px;
-  background: rgb(0 0 0 / 0.45);
+  inset: 0;
+  pointer-events: none;
 }
-.flap--rolling .flap__tile {
-  animation: flip 110ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+.tile__leaf-top::after {
+  background: #000;
+  animation: shade-in var(--flip) ease-in both;
 }
-.board__clock .flap__tile {
+.tile__leaf-bot::after {
+  background: #fff;
+  animation: shade-out calc(var(--flip) * 1.6) ease-out var(--flip) both;
+}
+.board__clock .tile {
   font-size: 18px;
   color: var(--amber);
+}
+@keyframes leaf-fall {
+  from {
+    transform: rotateX(0);
+  }
+  to {
+    transform: rotateX(-90deg);
+  }
+}
+@keyframes leaf-land {
+  0% {
+    transform: rotateX(90deg);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.6, 1);
+  }
+  62% {
+    transform: rotateX(-7deg);
+  }
+  82% {
+    transform: rotateX(3deg);
+  }
+  100% {
+    transform: rotateX(0);
+  }
+}
+@keyframes shade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+@keyframes shade-out {
+  from {
+    opacity: 0.12;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 /* Working agents are "boarding": a lamp that blinks like the board's remark column. */
@@ -948,7 +1033,6 @@ button {
   .plane__fly {
     animation: none;
   }
-  .flap__tile,
   .flap__ch {
     animation: fade 200ms linear both;
     animation-delay: 0ms !important;

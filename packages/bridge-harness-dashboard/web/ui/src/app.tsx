@@ -15,6 +15,8 @@ import {
   SquareTerminal,
   X,
   GitBranch,
+  Volume2,
+  VolumeX,
 } from 'lucide-preact';
 import type {
   AgentView,
@@ -33,7 +35,7 @@ import {
 import { ansiSpans } from './ansi.tsx';
 import { api } from './api.ts';
 import { KindMark } from './brand.tsx';
-import { Flap } from './flap.tsx';
+import { Flap, flapSoundOn, setFlapSound } from './flap.tsx';
 import { useBoard, type BoardState } from './store.ts';
 
 type View = 'board' | 'threads' | 'history';
@@ -241,6 +243,7 @@ function Shell({ board }: { board: Board }) {
             <Plus size={16} />
             <span>Spawn agent</span>
           </button>
+          <SoundToggle />
           <button
             class="btn btn--icon"
             onClick={board.logout}
@@ -2013,5 +2016,25 @@ function SelfDialog({
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** Mutes the flap clicks; the choice is kept per browser. */
+function SoundToggle() {
+  const [on, setOn] = useState(flapSoundOn);
+  const label = on ? 'Mute flap sound' : 'Play flap sound';
+  return (
+    <button
+      class="btn btn--icon"
+      onClick={() => {
+        setFlapSound(!on);
+        setOn(!on);
+      }}
+      aria-label={label}
+      aria-pressed={on}
+      title={label}
+    >
+      {on ? <Volume2 size={16} /> : <VolumeX size={16} />}
+    </button>
   );
 }
