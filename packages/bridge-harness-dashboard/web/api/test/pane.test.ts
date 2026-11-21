@@ -22,7 +22,7 @@ describe('panes', () => {
     expect(first).toEqual({ text: 'line 1\nDo you want to proceed?\n❯ 1. Yes', server: 'spark1' });
     rex.calls.length = 0;
     await panes.screen('block:a');
-    expect(rex.calls).toEqual([['-S', 'spark1', 'capture', '-b', 'block:a', '--trim']]);
+    expect(rex.calls).toEqual([['-S', 'spark1', 'capture', '-b', 'block:a', '--trim', '--format', 'vt']]);
   });
 
   it('types text before keys, on the server that holds the pane', async () => {

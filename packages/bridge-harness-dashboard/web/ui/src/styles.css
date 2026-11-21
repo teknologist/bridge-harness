@@ -85,6 +85,10 @@
   --mono: 'Martian Mono', ui-monospace, Menlo, monospace;
   --board: 'Barlow Condensed', 'Arial Narrow', sans-serif; /* split-flap lettering */
   --term: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  /* Live terminal: the user's Nerd Font when installed, so prompt and
+     status-line icons render; falls back to the self-hosted Plex. */
+  --console: 'ZenbonesMono Nerd Font Mono', 'ZenbonesMono Nerd Font', 'Symbols Nerd Font Mono',
+    'IBM Plex Mono', ui-monospace, Menlo, monospace;
   --flip-ms: 260ms;
 }
 
@@ -1731,6 +1735,10 @@ button {
   background: none;
   border-radius: 0;
 }
+  color: #c8ccd2;
+  font-family: var(--console);
+  font-size: 10.5px;
+  line-height: 1.25;
 .pane__wait {
   margin-left: auto;
 }

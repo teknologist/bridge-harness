@@ -23,6 +23,9 @@ export function rexRunner(bin: string): RexRun {
     });
 }
 
+const ESCAPES = /\x1b\[[0-9;?]*[A-Za-z]/g;
+const visible = (line: string) => line.replace(ESCAPES, '').trim() !== '';
+
 /** Keeps the tail of a capture: a prompt sits at the bottom of the screen. */
 const SCREEN_LINES = 60;
 
@@ -32,7 +35,7 @@ export function createPanes(run: RexRun, hosts: () => Promise<string[]>) {
   const serverArgs = (server: string) => (server ? ['-S', server] : []);
 
   async function capture(block: string, server: string) {
-    return run([...serverArgs(server), 'capture', '-b', block, '--trim']);
+    return run([...serverArgs(server), 'capture', '-b', block, '--trim', '--format', 'vt']);
   }
 
   async function locate(
@@ -61,7 +64,9 @@ export function createPanes(run: RexRun, hosts: () => Promise<string[]>) {
   return {
     async screen(block: string) {
       const { server, text } = await locate(block);
-      const lines = text.replace(/\s+$/, '').split('\n');
+      // VT capture: lines keep their SGR colour codes for the UI to paint.
+      const lines = text.split(/\r?\n/);
+      while (lines.length && !visible(lines[lines.length - 1])) lines.pop();
       return {
         text: lines.slice(-SCREEN_LINES).join('\n'),
         server: server || undefined,

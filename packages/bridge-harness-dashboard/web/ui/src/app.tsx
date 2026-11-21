@@ -29,6 +29,7 @@ import {
   SPAWN_THINKING,
   threadKey,
 } from '../../../shared/contract.ts';
+import { ansiSpans } from './ansi.tsx';
 import { api } from './api.ts';
 import { KindMark } from './brand.tsx';
 import { Flap } from './flap.tsx';
@@ -856,7 +857,7 @@ function PaneTerminal(props: { agentId: string }) {
   return (
     <div class='console'>
       <pre ref={pre} class='prompt__screen console__screen' aria-label={`Terminal of ${props.agentId}`}>
-        {screen ?? 'Reading the terminal…'}
+        {screen === undefined ? 'Reading the terminal…' : ansiSpans(screen)}
       </pre>
       {error ? <p class='prompt__error'>{error}</p> : null}
       <div class='prompt__keys'>
